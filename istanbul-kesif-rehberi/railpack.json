@@ -1,22 +1,11 @@
 {
   "$schema": "https://schema.railpack.com",
   "packages": {
-    "node": "20"
+    "node": "22"
   },
-  "steps": [
-    {
-      "name": "build",
-      "commands": [
-        {
-          "cmd": "npm ci"
-        },
-        {
-          "cmd": "npm run build"
-        }
-      ]
+  "steps": {
+    "build": {
+      "commands": ["npm run build"]
     }
-  ],
-  "deploy": {
-    "startCommand": "node_modules/.bin/next start"
   }
-} 
+}
