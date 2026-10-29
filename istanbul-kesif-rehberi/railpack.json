@@ -1,1 +1,15 @@
-{"$schema":"https://schema.railpack.com","steps":[{"name":"build","commands":["npm ci","npm run build"]}],"deploy":{"startCommand":"node .next/standalone/server.js"}}
+{
+  "$schema": "https://schema.railpack.com",
+  "steps": [
+    {
+      "name": "build",
+      "commands": [
+        "npm ci",
+        "npm run build"
+      ]
+    }
+  ],
+  "deploy": {
+    "startCommand": "node .next/standalone/server.js"
+  }
+}
