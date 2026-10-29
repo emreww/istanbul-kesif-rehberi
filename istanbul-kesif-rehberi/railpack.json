@@ -1,19 +1,22 @@
 {
   "$schema": "https://schema.railpack.com",
-  "phases": {
-    "setup": {
-      "nixPackages": {
-        "nodejs": "20"
-      }
-    },
-    "build": {
-      "cmds": [
-        "npm ci",
-        "npm run build"
+  "packages": {
+    "node": "20"
+  },
+  "steps": [
+    {
+      "name": "build",
+      "commands": [
+        {
+          "cmd": "npm ci"
+        },
+        {
+          "cmd": "npm run build"
+        }
       ]
     }
-  },
+  ],
   "deploy": {
-    "startCommand": "node .next/standalone/server.js"
+    "startCommand": "node_modules/.bin/next start"
   }
-}
+} 
