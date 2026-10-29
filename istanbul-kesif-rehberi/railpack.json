@@ -1,9 +1,12 @@
 {
   "$schema": "https://schema.railpack.com",
-  "packages": {
-    "node": "20"
-  },
   "steps": [
+    {
+      "name": "packages:apt:runtime",
+      "commands": [
+        "apt-get update && apt-get install -y nodejs npm"
+      ]
+    },
     {
       "name": "build",
       "commands": [
@@ -13,6 +16,6 @@
     }
   ],
   "deploy": {
-    "startCommand": "sh -c 'eval \"$(mise activate bash)\" && node .next/standalone/server.js'"
+    "startCommand": "node .next/standalone/server.js"
   }
 }
