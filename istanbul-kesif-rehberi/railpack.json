@@ -13,6 +13,6 @@
     }
   ],
   "deploy": {
-    "startCommand": "node .next/standalone/server.js"
+    "startCommand": "sh -c 'eval \"$(mise activate bash)\" && node .next/standalone/server.js'"
   }
 }
