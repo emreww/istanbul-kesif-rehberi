@@ -1,20 +1,18 @@
 {
   "$schema": "https://schema.railpack.com",
-  "steps": [
-    {
-      "name": "packages:apt:runtime",
-      "commands": [
-        "apt-get update && apt-get install -y nodejs npm"
-      ]
+  "phases": {
+    "setup": {
+      "nixPackages": {
+        "nodejs": "20"
+      }
     },
-    {
-      "name": "build",
-      "commands": [
+    "build": {
+      "cmds": [
         "npm ci",
         "npm run build"
       ]
     }
-  ],
+  },
   "deploy": {
     "startCommand": "node .next/standalone/server.js"
   }
