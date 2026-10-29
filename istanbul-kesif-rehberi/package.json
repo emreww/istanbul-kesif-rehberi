@@ -1,7 +1,12 @@
 {
   "name": "istanbul-kesif-rehberi",
   "version": "0.1.0",
+  "railpack": {
+    "packages":{ 
+      "node": "20"}}
+    ,
   "private": true,
+  
   "scripts": {
     "dev": "next dev",
     "build": "next build",
