@@ -1,8 +1,5 @@
 {
   "$schema": "https://schema.railpack.com",
-  "packages": {
-    "node": "22"
-  },
   "steps": {
     "build": {
       "commands": ["npm run build"]
