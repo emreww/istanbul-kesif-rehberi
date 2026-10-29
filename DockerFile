@@ -1,0 +1,17 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Paket listelerini kopyala ve bağımlılıkları kur
+COPY package*.json ./
+RUN npm install
+
+# Proje dosyalarını kopyala
+COPY . .
+
+# Proje build gerektiriyorsa (Next.js, Vite, Nest.js vb.) aşağıdaki satırın başındaki # işaretini kaldırın:
+# RUN npm run build
+
+EXPOSE 3000
+
+CMD ["npm", "run", "start"]
