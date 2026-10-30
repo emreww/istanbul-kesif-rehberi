@@ -220,6 +220,11 @@ export default function Navbar() {
                       >
                         🏅 Rozetler
                       </Link>
+                      <link
+                       href="/mesajlar"
+                       onClick={() => setIsOpen(false)}
+                       className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
+                      >💭 Mesajlar</link>
                       <Link
                         href="/bildirimler"
                         onClick={() => setDropdownOpen(false)}
@@ -327,6 +332,11 @@ export default function Navbar() {
                   >
                     🏅 Rozetler
                   </Link>
+                  <link
+                  href="/mesajlar"
+                  onClick={() => setIsOpen(false)}
+                  className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
+                  >💭 Mesajlar</link>
                   <Link
                     href="/bildirimler"
                     onClick={() => setIsOpen(false)}
