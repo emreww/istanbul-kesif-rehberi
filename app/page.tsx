@@ -6,9 +6,6 @@ import AnimatedSection from '@/components/ui/AnimatedSection'
 import SearchBar from '@/components/search/SearchBar'
 import IstanbulWeather from '@/components/weather/IstanbulWeather'
 
-
-
-
 export const metadata: Metadata = {
   title: 'İstanbul Keşif Rehberi | Mekan Keşfet, Puanla, Yorumla',
   description:
@@ -22,37 +19,34 @@ export const metadata: Metadata = {
 }
 
 export default async function HomePage() {
-  "use client"
-  const supabase = await createClient()
-
+  // "use client" SATIRI SİLİNDİ (Bu bir Server Component'tir)
   
+  const supabase = await createClient()
   
   const [
-          categoriesRes,
-          popularPlacesRes,
-          totalPlacesRes,
-          totalReviewsRes,
-          totalUsersRes
+    categoriesRes,
+    popularPlacesRes,
+    totalPlacesRes,
+    totalReviewsRes,
+    totalUsersRes
   ] = await Promise.all([
-          supabase.from('categories').select('*').order('id').limit(12),
-          supabase.from('places').select('id, name, district, average_rating, total_reviews, category_id, categories(name, icon)').eq('status', 'approved').order('average_rating', { ascending: false }).order('total_reviews', { ascending: false }).limit(6),
-          supabase.from('places').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
-          supabase.from('reviews').select('id', { count: 'exact', head: true }),
-          supabase.from('profiles').select('id', { count: 'exact', head: true })
+    supabase.from('categories').select('*').order('id').limit(12),
+    supabase.from('places').select('id, name, district, average_rating, total_reviews, category_id, categories(name, icon)').eq('status', 'approved').order('average_rating', { ascending: false }).order('total_reviews', { ascending: false }).limit(6),
+    supabase.from('places').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
+    supabase.from('reviews').select('id', { count: 'exact', head: true }),
+    supabase.from('profiles').select('id', { count: 'exact', head: true })
   ])
-        const categories = categoriesRes.data || []
-        const popularPlaces = popularPlacesRes.data || []
-        const totalPlacesCount = totalPlacesRes.count || 0
-        const totalReviewsCount = totalReviewsRes.count || 0
-        const totalUsersCount = totalUsersRes.count || 0
-      
   
-     return (
-    
+  const categories = categoriesRes.data || []
+  const popularPlaces = popularPlacesRes.data || []
+  const totalPlacesCount = totalPlacesRes.count || 0
+  const totalReviewsCount = totalReviewsRes.count || 0
+  const totalUsersCount = totalUsersRes.count || 0
+      
+  return (
     <div className="relative min-h-screen pb-16">
       <AnimatedBackground />
       <div className="relative z-10">
-
         <section className="max-w-7xl mx-auto px-4 pt-12 md:pt-20">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
             
@@ -103,7 +97,6 @@ export default async function HomePage() {
               </AnimatedSection>
             </div>
 
-            
             <div className="hidden lg:flex lg:col-span-5 justify-center">
               <div className="relative w-80 h-80 md:w-96 md:h-96">
                 <div className="absolute inset-0 rounded-full border-4 border-dashed border-amber-400/40 animate-[spin_25s_linear_infinite]" />
@@ -123,7 +116,6 @@ export default async function HomePage() {
           </div>
         </section>
 
-        
         <section className="max-w-7xl mx-auto px-4 mt-16">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 glass-panel rounded-3xl border border-white/10">
             <div className="text-center p-3 border-r border-white/5 last:border-0">
@@ -145,7 +137,6 @@ export default async function HomePage() {
           </div>
         </section>
 
-        
         <section className="max-w-7xl mx-auto px-4 py-16">
           <AnimatedSection variant="left">
             <div className="flex items-center justify-between mb-8">
@@ -159,7 +150,7 @@ export default async function HomePage() {
             </div>
           </AnimatedSection>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {categories?.map((cat:any, index:number) => (
+            {categories?.map((cat: any, index: number) => (
               <AnimatedSection key={cat.id} delay={index * 0.04} variant="up">
                 <Link
                   href={`/kesfet?kategori=${cat.slug}`}
@@ -173,7 +164,6 @@ export default async function HomePage() {
           </div>
         </section>
 
-        
         <section className="max-w-7xl mx-auto px-4 pb-12">
           <AnimatedSection variant="right">
             <div className="flex items-center justify-between mb-8">
@@ -188,7 +178,7 @@ export default async function HomePage() {
           </AnimatedSection>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {popularPlaces?.map((place:any, index:number) => {
+            {popularPlaces?.map((place: any, index: number) => {
               const cat = Array.isArray(place.categories) ? place.categories[0] : place.categories
               return (
                 <AnimatedSection key={place.id} delay={index * 0.08} variant="up">
@@ -232,33 +222,4 @@ export default async function HomePage() {
       </div>
     </div>
   )
-  
-  
-
-  /*const { data: categories } = await supabase
-    .from('categories')
-    .select('*')
-    .order('id')
-
-  const { data: popularPlaces } = await supabase
-    .from('places')
-    .select('id, name, district, average_rating, total_reviews, category_id, categories(name, icon)')
-    .eq('status', 'approved')
-    .order('average_rating', { ascending: false })
-    .order('total_reviews', { ascending: false })
-    .limit(6)
-
-  const { count: totalPlacesCount } = await supabase
-    .from('places')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'approved')
-
-  const { count: totalReviewsCount } = await supabase
-    .from('reviews')
-    .select('id', { count: 'exact', head: true })
-
-  const { count: totalUsersCount } = await supabase
-    .from('profiles')
-    .select('id', { count: 'exact', head: true })*/
- 
 }

@@ -220,11 +220,16 @@ export default function Navbar() {
                       >
                         🏅 Rozetler
                       </Link>
-                      <link
+                      
+                      {/* BURASI DÜZELTİLDİ: link -> Link */}
+                      <Link
                        href="/mesajlar"
-                       onClick={() => setIsOpen(false)}
-                       className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
-                      >💭 Mesajlar</link>
+                       onClick={() => setDropdownOpen(false)}
+                       className="block px-4 py-2 text-gray-300 hover:bg-gray-700 hover:text-primary-400 transition"
+                      >
+                        💭 Mesajlar
+                      </Link>
+
                       <Link
                         href="/bildirimler"
                         onClick={() => setDropdownOpen(false)}
@@ -332,11 +337,16 @@ export default function Navbar() {
                   >
                     🏅 Rozetler
                   </Link>
-                  <link
-                  href="/mesajlar"
-                  onClick={() => setIsOpen(false)}
-                  className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
-                  >💭 Mesajlar</link>
+                  
+                  {/* BURASI DÜZELTİLDİ: link -> Link */}
+                  <Link
+                    href="/mesajlar"
+                    onClick={() => setIsOpen(false)}
+                    className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
+                  >
+                    💭 Mesajlar
+                  </Link>
+
                   <Link
                     href="/bildirimler"
                     onClick={() => setIsOpen(false)}
