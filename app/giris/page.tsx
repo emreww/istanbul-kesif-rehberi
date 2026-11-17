@@ -16,7 +16,6 @@ export default function GirisPage() {
   const [sifirlamaYukleniyor, setSifirlamaYukleniyor] = useState(false)
   const [sifirlamaMailGonderildi, setSifirlamaMailGonderildi] = useState(false)
 
-
   const router = useRouter()
   const supabase = createClient()
 
@@ -81,7 +80,7 @@ export default function GirisPage() {
     setBilgi('')
     setSifirlamaYukleniyor(true)
 
-    /*const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/password-reset`,
     })
 
@@ -91,20 +90,8 @@ export default function GirisPage() {
       setHata('Sıfırlama e-postası gönderilemedi: ' + error.message)
     } else {
       setSifirlamaMailGonderildi(true)
-    }*/
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    
-    // Ekrana başarı mesajını veriyoruz
-    postMessage('Şifre sıfırlama bağlantısı e-posta adresinize gönderildi!');
-    // --- SİMÜLASYON BİTİŞİ ---
-
-
-
+    }
   }
-
-
-
-
 
   return (
     <div className="relative min-h-screen">
