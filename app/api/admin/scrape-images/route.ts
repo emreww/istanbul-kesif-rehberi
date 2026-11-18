@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+export const dynamic = 'force-dynamic'
+
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!url || !key) {
+    throw new Error('Supabase URL veya SUPABASE_SERVICE_ROLE_KEY eksik.')
+  }
+
+  return createClient(url, key)
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -66,22 +74,29 @@ async function searchDuckDuckGoImage(placeName: string, district?: string | null
 }
 
 export async function GET() {
-  // İstatistikleri döndür
-  const [totalRes, checkedRes, foundRes] = await Promise.all([
-    supabase.from('places').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
-    supabase.from('places').select('*', { count: 'exact', head: true }).eq('image_checked', true),
-    supabase.from('places').select('*', { count: 'exact', head: true }).not('image_url', 'is', null),
-  ])
+  try {
+    const supabase = getSupabaseAdmin()
 
-  return NextResponse.json({
-    total: totalRes.count || 0,
-    checked: checkedRes.count || 0,
-    found: foundRes.count || 0,
-  })
+    const [totalRes, checkedRes, foundRes] = await Promise.all([
+      supabase.from('places').select('*', { count: 'exact', head: true }).eq('status', 'approved'),
+      supabase.from('places').select('*', { count: 'exact', head: true }).eq('image_checked', true),
+      supabase.from('places').select('*', { count: 'exact', head: true }).not('image_url', 'is', null),
+    ])
+
+    return NextResponse.json({
+      total: totalRes.count || 0,
+      checked: checkedRes.count || 0,
+      found: foundRes.count || 0,
+    })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
 }
 
 export async function POST() {
   try {
+    const supabase = getSupabaseAdmin()
+
     const { data: places, error } = await supabase
       .from('places')
       .select('id, name, district, categories!inner(name)')
