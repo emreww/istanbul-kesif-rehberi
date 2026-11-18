@@ -203,7 +203,7 @@ export default async function HomePage() {
                 >
                   <div className="w-24 h-24 rounded-full bg-amber-400/10 border border-amber-400/40 flex items-center justify-center group-hover:scale-110 group-hover:bg-amber-400/20 group-hover:border-amber-300 transition-all duration-300">
                     <Compass
-                      className="w-11 h-11 text-amber-400 group-hover:rotate-45 transition-transform duration-500"
+                      className="w-11 h-11 text-amber-400 group-hover:rotate-135 transition-transform duration-500"
                       strokeWidth={1.4}
                     />
                   </div>
