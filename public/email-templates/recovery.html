@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Şifre Sıfırlama</title>
+</head>
+<body style="margin:0; padding:0; background-color:#0f172a; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color:#f8fafc;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" style="max-width:520px; background-color:#1e293b; border:1px solid #334155; border-radius:16px; overflow:hidden;">
+          <tr>
+            <td style="padding:32px 32px 24px; text-align:center; background:linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-bottom:1px solid #334155;">
+              <div style="font-size:32px; margin-bottom:8px;">🔑</div>
+              <h1 style="margin:0; font-size:22px; font-weight:700; color:#ffffff;">Şifre Sıfırlama Talebi</h1>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px; font-size:15px; line-height:1.6; color:#cbd5e1;">
+              <p style="margin:0 0 16px;">Merhaba,</p>
+              <p style="margin:0 0 24px;">
+                <strong>Keşif İstanbul</strong> hesabın için bir şifre sıfırlama talebi aldık. Yeni şifreni belirlemek için aşağıdaki butona tıkla:
+              </p>
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" style="padding:8px 0 24px;">
+                    <a href="{{ .ConfirmationURL }}" style="display:inline-block; padding:14px 28px; background-color:#10b981; color:#ffffff; text-decoration:none; font-weight:600; font-size:15px; border-radius:10px;">
+                      Şifremi Sıfırla
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 8px; font-size:13px; color:#94a3b8;">
+                Buton çalışmazsa aşağıdaki bağlantıyı tarayıcına yapıştırabilirsin:
+              </p>
+              <p style="margin:0 0 24px; font-size:12px; word-break:break-all; color:#34d399;">
+                {{ .ConfirmationURL }}
+              </p>
+              <hr style="border:none; border-top:1px solid #334155; margin:24px 0;" />
+              <p style="margin:0; font-size:12px; color:#64748b; text-align:center;">
+                Şifre sıfırlama talebinde bulunmadıysan hesabın güvendedir; bu e-postayı silebilirsin.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
