@@ -48,17 +48,17 @@ export default async function HomePage() {
       <AnimatedBackground />
       <div className="relative z-10">
         <section className="max-w-7xl mx-auto px-4 pt-12 md:pt-20">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
             
-            <div className="lg:col-span-7 text-center lg:text-left space-y-6">
+            <div className="lg:col-span-7 text-left space-y-8">
               <AnimatedSection>
-                <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary-500/15 border border-primary-500/30 text-primary-300 text-xs font-bold uppercase tracking-wider mb-2">
+                <div className="text-xs uppercase tracking-[0.2em] font-semibold text-stone-400 border-l-2 border-[#e8743b] pl-3 mb-4">
                   ✨ İstanbul'un En Kapsamlı Keşif Platformu
                 </div>
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-tight drop-shadow-lg">
-                  Bugün nereye <span className="gradient-text-orange">gidelim?</span>
+                <h1 className="text-5xl sm:text-6xl lg:text-7xl font-serif font-normal text-stone-50 leading-[0.95] tracking-tight">
+                  Bugün nereye <span className="text-[#e8743b] italic">gidelim?</span>
                 </h1>
-                <p className="text-lg md:text-xl text-gray-300 max-w-xl mx-auto lg:mx-0 font-normal leading-relaxed">
+                <p className="font-sans text-stone-300 text-lg md:text-xl max-w-xl leading-relaxed mt-6">
                   Tarihi sokaklardan gizli lezzet duraklarına, yüzlerce mekanı keşfet, puanla ve toplulukla paylaş.
                 </p>
               </AnimatedSection>
@@ -68,22 +68,22 @@ export default async function HomePage() {
               </AnimatedSection>
 
               <AnimatedSection delay={0.35} variant="zoom">
-                <div className="flex flex-wrap justify-center lg:justify-start gap-4 pt-2">
+                <div className="flex flex-wrap gap-4 pt-2">
                   <Link
                     href="/kesfet"
-                    className="btn-primary py-3.5 px-8 text-base shadow-lg shadow-orange-500/30"
+                    className="inline-flex items-center min-h-11 bg-[#e8743b] text-stone-950 uppercase tracking-wide text-sm font-semibold py-3.5 px-8 rounded-none hover:bg-[#f08a55] cursor-pointer transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8743b]"
                   >
                     🗺️ Mekanları Keşfet
                   </Link>
                   <Link
                     href="/cark"
-                    className="btn-secondary py-3.5 px-8 text-base"
+                    className="inline-flex items-center min-h-11 border border-stone-500 text-stone-100 text-sm py-3.5 px-8 rounded-none hover:border-stone-100 cursor-pointer transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8743b]"
                   >
                     🎡 Çarkı Çevir
                   </Link>
                   <Link
                     href="/yakinimda"
-                    className="btn-outline py-3.5 px-6 text-sm"
+                    className="inline-flex items-center min-h-11 text-stone-300 text-sm underline underline-offset-4 decoration-stone-600 hover:decoration-[#e8743b] py-3.5 px-6 cursor-pointer transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8743b]"
                   >
                     📍 Yakınımdakiler
                   </Link>
@@ -99,15 +99,15 @@ export default async function HomePage() {
 
             <div className="hidden lg:flex lg:col-span-5 justify-center">
               <div className="relative w-80 h-80 md:w-96 md:h-96">
-                <div className="absolute inset-0 rounded-full border-4 border-dashed border-amber-400/40 animate-[spin_25s_linear_infinite]" />
-                <div className="absolute inset-6 rounded-full border border-primary-500/20 animate-pulse" />
-                <div className="absolute inset-12 rounded-full bg-gradient-to-br from-primary-500/20 via-purple-500/10 to-amber-500/20 blur-2xl animate-pulse" />
+                <div className="absolute inset-0 rounded-full border border-dashed border-stone-500/40 animate-[spin_25s_linear_infinite] motion-reduce:animate-none" />
+                <div className="absolute inset-6 rounded-full border border-[#e8743b]/40 animate-pulse motion-reduce:animate-none" />
+                <div className="absolute inset-12 rounded-full border border-stone-600/50 bg-[#e8743b]/5" />
                 <Link
                   href="/cark"
-                  className="absolute inset-0 flex flex-col items-center justify-center group cursor-pointer"
+                  className="absolute inset-0 flex flex-col items-center justify-center group cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8743b]"
                 >
-                  <span className="text-8xl drop-shadow-2xl group-hover:scale-110 transition-transform duration-300">🎡</span>
-                  <span className="mt-4 px-4 py-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-xs font-bold text-amber-300 group-hover:border-amber-400 transition">
+                  <span className="text-8xl group-hover:scale-110 transition-transform duration-300 motion-reduce:transform-none">🎡</span>
+                  <span className="mt-4 px-4 py-1.5 border border-stone-500 bg-stone-950/80 text-xs font-semibold uppercase tracking-[0.16em] text-[#f0a070] group-hover:border-[#e8743b] transition-colors duration-200">
                     Çarkı Başlat →
                   </span>
                 </Link>
@@ -117,34 +117,34 @@ export default async function HomePage() {
         </section>
 
         <section className="max-w-7xl mx-auto px-4 mt-16">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 glass-panel rounded-3xl border border-white/10">
-            <div className="text-center p-3 border-r border-white/5 last:border-0">
-              <div className="text-3xl font-extrabold text-white">{totalPlacesCount || 0}+</div>
-              <div className="text-xs text-gray-400 mt-1 uppercase font-semibold">Kayıtlı Mekan</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 border-y border-stone-700/60">
+            <div className="text-left py-6 pl-5 odd:border-l-0 border-l border-stone-700/60 md:first:border-l-0 md:odd:border-l">
+              <div className="font-serif text-4xl md:text-5xl font-normal text-stone-50">{totalPlacesCount || 0}+</div>
+              <div className="text-[11px] text-stone-400 mt-2 uppercase tracking-[0.18em] font-semibold">Kayıtlı Mekan</div>
             </div>
-            <div className="text-center p-3 md:border-r border-white/5 last:border-0">
-              <div className="text-3xl font-extrabold text-amber-400">39</div>
-              <div className="text-xs text-gray-400 mt-1 uppercase font-semibold">İstanbul İlçesi</div>
+            <div className="text-left py-6 pl-5 border-l border-stone-700/60">
+              <div className="font-serif text-4xl md:text-5xl font-normal text-amber-300">39</div>
+              <div className="text-[11px] text-stone-400 mt-2 uppercase tracking-[0.18em] font-semibold">İstanbul İlçesi</div>
             </div>
-            <div className="text-center p-3 border-r border-white/5 last:border-0">
-              <div className="text-3xl font-extrabold text-emerald-400">{totalReviewsCount || 0}+</div>
-              <div className="text-xs text-gray-400 mt-1 uppercase font-semibold">Kullanıcı Yorumu</div>
+            <div className="text-left py-6 pl-5 border-t md:border-t-0 border-stone-700/60 odd:border-l-0 md:odd:border-l md:border-l">
+              <div className="font-serif text-4xl md:text-5xl font-normal text-emerald-300">{totalReviewsCount || 0}+</div>
+              <div className="text-[11px] text-stone-400 mt-2 uppercase tracking-[0.18em] font-semibold">Kullanıcı Yorumu</div>
             </div>
-            <div className="text-center p-3">
-              <div className="text-3xl font-extrabold text-sky-400">{totalUsersCount || 0}+</div>
-              <div className="text-xs text-gray-400 mt-1 uppercase font-semibold">Aktif Kullanıcı</div>
+            <div className="text-left py-6 pl-5 border-t md:border-t-0 border-l border-stone-700/60">
+              <div className="font-serif text-4xl md:text-5xl font-normal text-sky-300">{totalUsersCount || 0}+</div>
+              <div className="text-[11px] text-stone-400 mt-2 uppercase tracking-[0.18em] font-semibold">Aktif Kullanıcı</div>
             </div>
           </div>
         </section>
 
         <section className="max-w-7xl mx-auto px-4 py-16">
           <AnimatedSection variant="left">
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-end justify-between gap-4 border-b border-stone-700/60 pb-5 mb-10">
               <div>
-                <h2 className="text-2xl md:text-3xl font-extrabold text-white">Kategoriler</h2>
-                <p className="text-sm text-gray-400 mt-1">İlgi alanına ve aradığın atmosfere göre filtrele</p>
+                <h2 className="font-serif text-3xl md:text-4xl font-normal tracking-tight text-stone-50">Kategoriler</h2>
+                <p className="text-sm text-stone-400 mt-2">İlgi alanına ve aradığın atmosfere göre filtrele</p>
               </div>
-              <Link href="/kesfet" className="text-xs font-semibold text-primary-400 hover:text-primary-300">
+              <Link href="/kesfet" className="shrink-0 text-xs uppercase tracking-[0.18em] font-semibold text-[#e8743b] hover:text-[#f08a55] hover:underline underline-offset-4 cursor-pointer transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8743b]">
                 Tümünü Gör →
               </Link>
             </div>
@@ -154,10 +154,10 @@ export default async function HomePage() {
               <AnimatedSection key={cat.id} delay={index * 0.04} variant="up">
                 <Link
                   href={`/kesfet?kategori=${cat.slug}`}
-                  className="glass-card rounded-2xl p-5 text-center block hover:border-orange-500/40 transition group"
+                  className="block border border-stone-700/60 bg-stone-900/40 rounded-sm p-5 text-left hover:border-[#e8743b]/70 hover:bg-stone-800/60 transition-colors duration-200 group cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8743b]"
                 >
-                  <div className="text-4xl mb-2.5 group-hover:scale-115 transition-transform duration-200">{cat.icon}</div>
-                  <div className="font-bold text-sm text-gray-200 group-hover:text-primary-300 transition">{cat.name}</div>
+                  <div className="text-3xl mb-3 group-hover:scale-110 transition-transform duration-200 motion-reduce:transform-none">{cat.icon}</div>
+                  <div className="font-serif text-base text-stone-100 group-hover:text-[#f0a070] transition-colors duration-200">{cat.name}</div>
                 </Link>
               </AnimatedSection>
             ))}
@@ -166,52 +166,52 @@ export default async function HomePage() {
 
         <section className="max-w-7xl mx-auto px-4 pb-12">
           <AnimatedSection variant="right">
-            <div className="flex items-center justify-between mb-8">
+            <div className="flex items-end justify-between gap-4 border-b border-stone-700/60 pb-5 mb-10">
               <div>
-                <h2 className="text-2xl md:text-3xl font-extrabold text-white">⭐ En Çok Sevilen Mekanlar</h2>
-                <p className="text-sm text-gray-400 mt-1">Topluluk puanlarına göre öne çıkan mekanlar</p>
+                <h2 className="font-serif text-3xl md:text-4xl font-normal tracking-tight text-stone-50">⭐ En Çok Sevilen Mekanlar</h2>
+                <p className="text-sm text-stone-400 mt-2">Topluluk puanlarına göre öne çıkan mekanlar</p>
               </div>
-              <Link href="/kesfet?siralama=en-yuksek-puan" className="text-xs font-semibold text-primary-400 hover:text-primary-300">
+              <Link href="/kesfet?siralama=en-yuksek-puan" className="shrink-0 text-xs uppercase tracking-[0.18em] font-semibold text-[#e8743b] hover:text-[#f08a55] hover:underline underline-offset-4 cursor-pointer transition-colors duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8743b]">
                 Tüm Popülerleri Gör →
               </Link>
             </div>
           </AnimatedSection>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-10 [counter-reset:place]">
             {popularPlaces?.map((place: any, index: number) => {
               const cat = Array.isArray(place.categories) ? place.categories[0] : place.categories
               return (
                 <AnimatedSection key={place.id} delay={index * 0.08} variant="up">
                   <Link
                     href={`/mekan/${place.id}`}
-                    className="card block p-6 relative overflow-hidden group"
+                    className="block relative border-t border-stone-600 pt-5 pb-6 hover:border-[#e8743b] transition-colors duration-200 group cursor-pointer [counter-increment:place] before:content-[counter(place,decimal-leading-zero)] before:block before:mb-3 before:font-serif before:text-sm before:tracking-[0.2em] before:text-[#e8743b] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e8743b]"
                   >
-                    <div className="flex items-start justify-between gap-2 mb-3">
+                    <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
                         {cat && (
-                          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-primary-300">
+                          <span className="inline-block text-[11px] uppercase tracking-[0.16em] text-stone-400 border border-stone-600 px-2 py-0.5 rounded-none bg-transparent">
                             {cat.icon} {cat.name}
                           </span>
                         )}
-                        <h3 className="font-bold text-xl text-white mt-2 group-hover:text-primary-300 transition">
+                        <h3 className="font-serif text-2xl font-normal text-stone-50 mt-3 leading-snug group-hover:text-[#f0a070] transition-colors duration-200">
                           {place.name}
                         </h3>
                       </div>
-                      <div className="flex items-center gap-1 bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 rounded-xl shrink-0">
-                        <span className="text-amber-400 text-sm">★</span>
-                        <span className="font-extrabold text-sm text-amber-300">
+                      <div className="flex items-center gap-1 border border-amber-300/40 px-2.5 py-1 rounded-none bg-transparent shrink-0">
+                        <span className="text-amber-300 text-sm">★</span>
+                        <span className="font-serif text-sm text-amber-200">
                           {Number(place.average_rating).toFixed(1)}
                         </span>
                       </div>
                     </div>
 
-                    <p className="text-gray-400 text-sm flex items-center gap-1 mb-4">
+                    <p className="text-stone-400 text-sm flex items-center gap-1 mb-4">
                       <span>📍</span> {place.district}
                     </p>
 
-                    <div className="flex items-center justify-between pt-3 border-t border-white/5 text-xs text-gray-400">
+                    <div className="flex items-center justify-between pt-3 border-t border-stone-700/60 text-xs text-stone-400">
                       <span>💬 {place.total_reviews || 0} kullanıcı yorumu</span>
-                      <span className="text-primary-400 font-semibold group-hover:translate-x-1 transition-transform">İncele →</span>
+                      <span className="text-[#e8743b] uppercase tracking-[0.16em] font-semibold group-hover:translate-x-1 motion-reduce:transform-none transition-transform duration-200">İncele →</span>
                     </div>
                   </Link>
                 </AnimatedSection>
