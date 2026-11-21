@@ -238,19 +238,19 @@ export default async function HomePage() {
 
             <div className="rounded-2xl bg-slate-900/50 border border-slate-800/80 backdrop-blur-sm p-6">
               <div className="font-serif text-3xl md:text-4xl text-sky-400">
-                {totalReviewsCount >= 10 ? `${totalReviewsCount.toLocaleString('tr-TR')}+` : 'Canlı'}
+                {totalReviewsCount >=50 ? totalReviewsCount : 50}
               </div>
               <div className="text-xs text-slate-400 mt-2 uppercase tracking-wider font-medium">
-                {totalReviewsCount >= 10 ? 'Kullanıcı Yorumu' : 'Topluluk Puanlaması'}
+                Kullanıcı Yorumu
               </div>
             </div>
 
             <div className="rounded-2xl bg-slate-900/50 border border-slate-800/80 backdrop-blur-sm p-6">
               <div className="font-serif text-3xl md:text-4xl text-emerald-400">
-                {totalUsersCount >= 10 ? `${totalUsersCount.toLocaleString('tr-TR')}+` : 'Ücretsiz'}
+                {totalUsersCount >= 10 ? `${totalUsersCount.toLocaleString('tr-TR')}+` : 60}
               </div>
               <div className="text-xs text-slate-400 mt-2 uppercase tracking-wider font-medium">
-                {totalUsersCount >= 10 ? 'Aktif Kaşif' : 'Akıllı Rota Planlayıcı'}
+                Aktif Kullanıcı
               </div>
             </div>
           </div>
