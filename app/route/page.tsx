@@ -240,7 +240,7 @@ export default function RoutePlannerPage() {
           .not('latitude', 'is', null)
           .not('longitude', 'is', null)
           .order('average_rating', { ascending: false })
-          .limit(10000)
+          .limit(100000)
 
         if (error) {
           console.error('Kategori mekanları çekilemedi:', error.message)
