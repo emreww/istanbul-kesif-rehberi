@@ -139,11 +139,11 @@ export default async function HomePage() {
                   <span>İstanbul'un Dijital Keşif Rehberi</span>
                 </div>
 
-                <h1 className="text-5xl sm:text-6xl lg:text-7xl font-serif font-normal text-white leading-[1.02] tracking-tight">
-                  Bugün nereye{' '}
-                  <span className="bg-gradient-to-r from-amber-200 via-amber-400 to-yellow-500 bg-clip-text text-transparent italic">
-                    gidelim?
-                  </span>
+                <h1 className="text-5xl sm:text-5xl lg:text-7xl font-serif font-normal text-white leading-[1.22] tracking-tight">
+                   Bugün nereye{' '}
+                    <span className="inline-block pr-3 bg-gradient-to-r from-amber-200 via-amber-400 to-yellow-500 bg-clip-text text-transparent italic">
+                      gidelim?
+                    </span>
                 </h1>
 
                 <p className="font-sans text-slate-300 text-lg md:text-xl max-w-xl leading-relaxed mt-5">
@@ -201,9 +201,9 @@ export default async function HomePage() {
                   href="/cark"
                   className="absolute inset-0 flex flex-col items-center justify-center group cursor-pointer"
                 >
-                  <div className="w-24 h-24 rounded-full bg-amber-400/10 border border-amber-400/40 flex items-center justify-center group-hover:scale-110 group-hover:bg-amber-400/20 group-hover:border-amber-300 transition-all duration-300">
+                  <div className="w-[140px] h-[140px] rounded-full bg-amber-400/10 border border-amber-400/40 flex items-center justify-center group-hover:scale-110 group-hover:bg-amber-400/20 group-hover:border-amber-300 transition-all duration-300">
                     <Compass
-                      className="w-30 h-30 text-amber-400 group-hover:rotate-135 transition-transform duration-500"
+                      className="w-40 h-40 text-amber-400 group-hover:rotate-270 transition-transform duration-800"
                       strokeWidth={1.4}
                     />
                   </div>
