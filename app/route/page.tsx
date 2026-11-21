@@ -565,7 +565,7 @@ export default function RoutePlannerPage() {
         marker.bindPopup(`
           <div style="font-family: sans-serif; color: #0f172a; padding: 4px; min-width: 170px;">
             <h4 style="margin:0 0 4px 0; font-size:14px; font-weight:700;">${place.name}</h4>
-            <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${place.address || ''}${distText} • ⭐ ${Number(place.average_rating || 5).toFixed(1)}</p>
+            <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${place.address || ''}${distText} • ⭐ ${Number(place.average_rating).toFixed(1)}</p>
             <button data-place-id="${place.id}" class="js-add-stop-btn" style="
               background: #f97316;
               color: white;
@@ -1009,7 +1009,7 @@ export default function RoutePlannerPage() {
                                   {place.name}
                                 </p>
                                 <p className="text-[11px] text-gray-400 truncate">
-                                  ⭐ {Number(place.average_rating || 5).toFixed(1)}
+                                  ⭐ {Number(place.average_rating).toFixed(1)}
                                   {place.district && place.district !== 'Diğer' ? ` • ${place.district}` : ''}
                                   {place.address ? ` • ${place.address}` : ''}
                                   {typeof place.distanceFromUser === 'number' && (

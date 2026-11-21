@@ -10,7 +10,7 @@ import Link from 'next/link'
 interface WheelItem {
   id: string
   name: string
-  district: string
+  address: string
   average_rating: number
   category_name?: string
   category_icon?: string
@@ -30,6 +30,19 @@ const RENKLER = [
   '#f97316', // Turuncu
   '#2563eb', // Kraliyet Mavisi
 ]
+
+const excludedCategoryIds = [
+  // Önceki hariç tutulan ID'ler
+  5, 9, 10, 11, 14, 16, 18, 19, 20, 22, 24, 26, 28, 29, 32, 33, 34, 36, 38,
+  40, 41, 43, 45, 48, 51, 54, 55, 56, 57, 59, 60, 61, 62, 63, 64, 66, 67, 68,
+  69, 70, 72, 73, 74, 75, 77, 78, 79, 80, 82, 87, 88, 89, 91, 92, 94, 98, 99,
+  100, 101, 102, 103, 104,
+  // Yeni listeden çıkarılan gezmeye/keşfe uygun olmayan ID'ler
+  37, 49, 52, 53, 71, 86, 90, 105, 106, 107, 114, 115, 117, 118, 121, 122,
+  123, 124, 125, 128, 129, 131, 132, 133, 135, 137,
+]
+
+const SPIN_DURATION_MS = 5000
 
 // Web Audio API ile çark tık sesi ve zafer jingle'ı
 class WheelSoundFX {
@@ -57,7 +70,7 @@ class WheelSoundFX {
       osc.frequency.setValueAtTime(frequency, this.ctx.currentTime)
       osc.frequency.exponentialRampToValueAtTime(120, this.ctx.currentTime + 0.04)
 
-      gain.gain.setValueAtTime(0.2, this.ctx.currentTime)
+      gain.gain.setValueAtTime(0.22, this.ctx.currentTime)
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.04)
 
       osc.connect(gain)
@@ -140,19 +153,32 @@ export default function CarkPage() {
   const [selectedItem, setSelectedItem] = useState<WheelItem | null>(null)
   const [isSpinning, setIsSpinning] = useState(false)
   const [rotation, setRotation] = useState(0)
-  const [tickerWobble, setTickerWobble] = useState(false)
+  const [tickerAngle, setTickerAngle] = useState(0)
   const [isRandomLoading, setIsRandomLoading] = useState(false)
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
-  const soundIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const lastSliceIndexRef = useRef<number>(-1)
+  const tickerTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const spinFinishTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  const radius = 175
+  const center = 200
+  const sliceAngle = wheelItems.length > 0 ? 360 / wheelItems.length : 360
+
+  useEffect(() => {
+    return () => {
+      if (tickerTimeoutRef.current) clearTimeout(tickerTimeoutRef.current)
+      if (spinFinishTimeoutRef.current) clearTimeout(spinFinishTimeoutRef.current)
+    }
+  }, [])
 
   const handleShare = async () => {
     if (!selectedItem) return
     const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/mekan/${selectedItem.id}` : ''
-    const shareText = `🎡 İstanbul Keşif Çarkı bugün bize burayı seçti: ${selectedItem.name} (${selectedItem.district}) ⭐ ${Number(selectedItem.average_rating).toFixed(1)}!\nSen de çevir ve keşfet:`
+    const shareText = `🎡 İstanbul Keşif Çarkı bugün bize burayı seçti: ${selectedItem.name} (${selectedItem.address}) ⭐ ${Number(selectedItem.average_rating).toFixed(1)}!\nSen de çevir ve keşfet:`
 
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
@@ -162,7 +188,7 @@ export default function CarkPage() {
           url: shareUrl,
         })
         return
-      } catch (e) {
+      } catch {
         // Kullanıcı iptal etti veya desteklenmiyor, modalı aç
       }
     }
@@ -172,7 +198,7 @@ export default function CarkPage() {
   const copyToClipboard = () => {
     if (!selectedItem) return
     const shareUrl = `${window.location.origin}/mekan/${selectedItem.id}`
-    const text = `🎡 İstanbul Keşif Çarkı Şanslı Mekan: ${selectedItem.name} (${selectedItem.district}) ⭐ ${Number(selectedItem.average_rating).toFixed(1)}\n${shareUrl}`
+    const text = `🎡 İstanbul Keşif Çarkı Şanslı Mekan: ${selectedItem.name} (${selectedItem.address}) ⭐ ${Number(selectedItem.average_rating).toFixed(1)}\n${shareUrl}`
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 2500)
@@ -189,7 +215,7 @@ export default function CarkPage() {
           .from('wheel_slots')
           .select(`
             id,
-            places ( id, name, district, average_rating, categories(name, icon) )
+            places ( id, name, address, average_rating, categories(name, icon) )
           `)
           .eq('user_id', user.id)
           .order('created_at', { ascending: true })
@@ -202,8 +228,8 @@ export default function CarkPage() {
             items.push({
               id: p.id,
               name: p.name,
-              district: p.district,
-              average_rating: p.average_rating || 5,
+              address: p.address,
+              average_rating: p.average_rating,
               category_name: cat?.name || undefined,
               category_icon: cat?.icon || undefined,
             })
@@ -224,9 +250,12 @@ export default function CarkPage() {
 
     if (isSpinning) return
 
+    if (tickerTimeoutRef.current) clearTimeout(tickerTimeoutRef.current)
+    if (spinFinishTimeoutRef.current) clearTimeout(spinFinishTimeoutRef.current)
+
+    lastSliceIndexRef.current = -1
     setIsSpinning(true)
     setSelectedItem(null)
-    setTickerWobble(true)
 
     // 1. Kazanan mekan indeksini belirle
     const winnerIndex = Math.floor(Math.random() * wheelItems.length)
@@ -234,11 +263,10 @@ export default function CarkPage() {
 
     // 2. Dilim açısını ve kazanan dilimin merkez açısını hesapla
     // SVG açı uzayında 0° = 3 o'clock, 90° = 6 o'clock, 180° = 9 o'clock, 270° = 12 o'clock (İbre)
-    const sliceAngle = 360 / wheelItems.length
-    const segmentCenterAngle = winnerIndex * sliceAngle + sliceAngle / 2
+    const currentSliceAngle = 360 / wheelItems.length
+    const segmentCenterAngle = winnerIndex * currentSliceAngle + currentSliceAngle / 2
 
     // 3. İbrenin (270°) tam olarak kazanan dilimin merkezine oturması için gereken hedef açı
-    // (segmentCenterAngle + TotalRotation) % 360 = 270 => TargetRotation % 360 = (270 - segmentCenterAngle) % 360
     const targetMod = (270 - segmentCenterAngle + 3600) % 360
     const currentMod = ((rotation % 360) + 360) % 360
 
@@ -251,29 +279,14 @@ export default function CarkPage() {
 
     setRotation(finalRotation)
 
-    // 4. Çark dönerken tık sesleri efekti
-    let tickCount = 0
-    const totalTicks = 28
-    const playTickSequence = () => {
-      if (tickCount < totalTicks) {
-        soundFX.playTick(600 + Math.random() * 80)
-        tickCount++
-        // Hız azaldıkça gecikme artar (ease-out simülasyonu)
-        const nextDelay = 70 + Math.pow(tickCount / totalTicks, 2.5) * 280
-        soundIntervalRef.current = setTimeout(playTickSequence, nextDelay)
-      }
-    }
-    playTickSequence()
-
-    // 5. Dönüş tamamlandığında sonucu göster
-    setTimeout(() => {
+    // 4. Dönüş tamamlandığında sonucu göster
+    spinFinishTimeoutRef.current = setTimeout(() => {
       setIsSpinning(false)
-      setTickerWobble(false)
+      setTickerAngle(0)
       setSelectedItem(winningPlace)
       soundFX.playWin()
       launchConfetti()
-      if (soundIntervalRef.current) clearTimeout(soundIntervalRef.current)
-    }, 4200)
+    }, SPIN_DURATION_MS)
   }, [wheelItems, isSpinning, rotation])
 
   const removeItem = async (placeId: string) => {
@@ -283,21 +296,47 @@ export default function CarkPage() {
     router.refresh()
   }
 
+  // Tüm veritabanındaki onaylı ve hariç tutulmayan mekanlardan bağımsız 8 rastgele nokta çeker
   const createRandomWheel = async () => {
     if (!user) return
     setIsRandomLoading(true)
     try {
-      const { data: randomPlaces } = await supabase
+      const { count } = await supabase
         .from('places')
-        .select(`
-          id, name, district, average_rating,
-          categories ( name, icon )
-        `)
+        .select('id', { count: 'exact', head: true })
+        .not('category_id', 'in', `(${excludedCategoryIds.join(',')})`)
         .eq('status', 'approved')
-        .order('average_rating', { ascending: false })
-        .limit(8)
 
-      if (randomPlaces && randomPlaces.length >= 2) {
+      const totalCount = count ?? 0
+      if (totalCount < 2) return
+
+      const targetCount = Math.min(8, totalCount)
+
+      const randomOffsets = new Set<number>()
+      while (randomOffsets.size < targetCount) {
+        randomOffsets.add(Math.floor(Math.random() * totalCount))
+      }
+
+      const responses = await Promise.all(
+        Array.from(randomOffsets).map(offset =>
+          supabase
+            .from('places')
+            .select(`
+              id, name, address, average_rating,
+              categories ( name, icon )
+            `)
+            .not('category_id', 'in', `(${excludedCategoryIds.join(',')})`)
+            .eq('status', 'approved')
+            .range(offset, offset)
+            .single()
+        )
+      )
+
+      const randomPlaces = responses
+        .map(res => res.data)
+        .filter((item): item is NonNullable<typeof item> => item !== null)
+
+      if (randomPlaces.length >= 2) {
         await supabase.from('wheel_slots').delete().eq('user_id', user.id)
         const slots = randomPlaces.map((place, index) => ({
           user_id: user.id,
@@ -312,7 +351,7 @@ export default function CarkPage() {
           return {
             id: p.id,
             name: p.name,
-            district: p.district,
+            address: p.address,
             average_rating: p.average_rating || 5,
             category_name: cat?.name,
             category_icon: cat?.icon,
@@ -329,10 +368,6 @@ export default function CarkPage() {
     }
   }
 
-  const radius = 175
-  const center = 200
-  const sliceAngle = wheelItems.length > 0 ? 360 / wheelItems.length : 360
-
   const renderWheelSegments = () => {
     if (wheelItems.length === 0) return null
 
@@ -345,6 +380,9 @@ export default function CarkPage() {
       const y1 = center + radius * Math.sin((startAngle * Math.PI) / 180)
       const x2 = center + radius * Math.cos((endAngle * Math.PI) / 180)
       const y2 = center + radius * Math.sin((endAngle * Math.PI) / 180)
+
+      const pinX = center + (radius - 8) * Math.cos((startAngle * Math.PI) / 180)
+      const pinY = center + (radius - 8) * Math.sin((startAngle * Math.PI) / 180)
 
       const pathData = [
         `M ${center} ${center}`,
@@ -361,6 +399,15 @@ export default function CarkPage() {
             stroke="#ffffff"
             strokeWidth="2.5"
             strokeOpacity="0.85"
+          />
+          {/* Dilim birleşim noktasındaki metalik pim */}
+          <circle
+            cx={pinX}
+            cy={pinY}
+            r="3.5"
+            fill="#ffffff"
+            stroke="#1e293b"
+            strokeWidth="1.5"
           />
         </g>
       )
@@ -435,7 +482,6 @@ export default function CarkPage() {
                 <div className="relative flex items-center justify-center p-4">
                   {/* Dış LED Işık Halkası & Bezel Efekti */}
                   <div className="relative w-80 h-80 sm:w-96 sm:h-96 md:w-[420px] md:h-[420px] rounded-full p-3 bg-gradient-to-tr from-slate-900 via-amber-950/40 to-slate-900 border-4 border-amber-500/30 shadow-[0_0_50px_rgba(249,115,22,0.25)] flex items-center justify-center">
-                    
                     {/* Çevreleyen LED Işık Noktaları */}
                     <div className="absolute inset-1 rounded-full border border-dashed border-amber-400/40 pointer-events-none" />
 
@@ -443,7 +489,26 @@ export default function CarkPage() {
                     <motion.div
                       className="w-full h-full relative"
                       animate={{ rotate: rotation }}
-                      transition={{ duration: 4.2, ease: [0.15, 0.9, 0.2, 1] }}
+                      transition={{
+                        duration: SPIN_DURATION_MS / 1000,
+                        ease: [0.12, 0.85, 0.18, 1],
+                      }}
+                      onUpdate={(latest) => {
+                        if (!isSpinning || wheelItems.length === 0) return
+                        const currentRot = Number(latest.rotate) || 0
+                        const pointerAngle = (270 - (currentRot % 360) + 360) % 360
+                        const currentSlice = Math.floor(pointerAngle / sliceAngle)
+
+                        if (currentSlice !== lastSliceIndexRef.current) {
+                          lastSliceIndexRef.current = currentSlice
+                          soundFX.playTick(580 + (currentSlice % 3) * 40)
+                          setTickerAngle(-26)
+                          if (tickerTimeoutRef.current) clearTimeout(tickerTimeoutRef.current)
+                          tickerTimeoutRef.current = setTimeout(() => {
+                            setTickerAngle(0)
+                          }, 65)
+                        }
+                      }}
                     >
                       <svg viewBox="0 0 400 400" className="w-full h-full drop-shadow-2xl">
                         <defs>
@@ -457,7 +522,7 @@ export default function CarkPage() {
                           </filter>
                         </defs>
 
-                        {/* Dilimler ve İsimler */}
+                        {/* Dilimler, İsimler ve Pimlerin Çizimi */}
                         {renderWheelSegments()}
                         {renderLabels()}
 
@@ -494,19 +559,20 @@ export default function CarkPage() {
                       </svg>
                     </motion.div>
 
-                    {/* TEPE İBRESİ (OK) - Tam 12 o'clock (270°) - Kusursuz Hizalanmış ve Animasyonlu */}
-                    <div
-                      className={`absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2 z-30 transition-transform duration-100 ${
-                        tickerWobble ? 'animate-ticker' : ''
-                      }`}
+                    {/* TEPE İBRESİ (OK) - Tam 12 o'clock (270°) */}
+                    <motion.div
+                      animate={{ rotate: tickerAngle }}
+                      transition={{ type: 'spring', stiffness: 700, damping: 15 }}
+                      style={{ transformOrigin: '50% 6px' }}
+                      className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2 z-30"
                     >
-                      <div className="relative flex flex-col items-center filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]">
+                      <div className="relative flex flex-col items-center filter drop-shadow-[0_4px_8px_rgba(0,0,0,0.85)]">
                         {/* İbre Gövdesi */}
                         <div className="w-0 h-0 border-l-[14px] border-r-[14px] border-t-[30px] border-l-transparent border-r-transparent border-t-amber-400" />
                         {/* İbre Üst Vurgusu */}
                         <div className="absolute -top-3 w-5 h-5 rounded-full bg-gradient-to-b from-amber-300 to-amber-600 border-2 border-white shadow-md" />
                       </div>
-                    </div>
+                    </motion.div>
                   </div>
                 </div>
               </AnimatedSection>
@@ -549,7 +615,7 @@ export default function CarkPage() {
                     className="mt-6 w-full max-w-md glass-panel p-6 rounded-3xl border-2 border-amber-500/50 shadow-[0_0_40px_rgba(249,115,22,0.3)] text-center relative overflow-hidden"
                   >
                     <div className="absolute -top-12 -right-12 w-32 h-32 bg-amber-500/20 rounded-full blur-2xl pointer-events-none" />
-                    
+
                     <span className="inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase mb-2">
                       🎉 Tebrikler! Seçilen Mekan
                     </span>
@@ -559,7 +625,7 @@ export default function CarkPage() {
                     </h2>
 
                     <p className="text-gray-300 text-sm mt-1.5 flex items-center justify-center gap-2">
-                      <span>📍 {selectedItem.district}</span>
+                      <span>📍 {selectedItem.address}</span>
                       <span>•</span>
                       <span className="text-amber-400 font-bold">⭐ {Number(selectedItem.average_rating).toFixed(1)} Puan</span>
                       {selectedItem.category_name && (
@@ -625,7 +691,7 @@ export default function CarkPage() {
                           {selectedItem.name}
                         </div>
                         <div className="text-xs text-gray-300 mt-0.5">
-                          📍 {selectedItem.district} • ⭐ {Number(selectedItem.average_rating).toFixed(1)}
+                          📍 {selectedItem.address} • ⭐ {Number(selectedItem.average_rating).toFixed(1)}
                         </div>
                         <div className="mt-3 text-[10px] text-gray-400 border-t border-white/10 pt-1.5 flex items-center justify-between">
                           <span>istanbul-kesif-rehberi</span>
@@ -637,7 +703,7 @@ export default function CarkPage() {
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         <a
                           href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                            `🎡 İstanbul Keşif Çarkı bugün bize burayı seçti: *${selectedItem.name}* (${selectedItem.district}) ⭐ ${Number(selectedItem.average_rating).toFixed(1)}!\n\nSen de dene: ${typeof window !== 'undefined' ? window.location.origin : ''}/mekan/${selectedItem.id}`
+                            `🎡 İstanbul Keşif Çarkı bugün bize burayı seçti: *${selectedItem.name}* (${selectedItem.address}) ⭐ ${Number(selectedItem.average_rating).toFixed(1)}!\n\nSen de dene: ${typeof window !== 'undefined' ? window.location.origin : ''}/mekan/${selectedItem.id}`
                           )}`}
                           target="_blank"
                           rel="noopener noreferrer"
@@ -703,7 +769,7 @@ export default function CarkPage() {
                             />
                             <div className="min-w-0">
                               <div className="font-semibold text-sm text-gray-100 truncate">{item.name}</div>
-                              <div className="text-xs text-gray-400">{item.district} • ⭐ {Number(item.average_rating).toFixed(1)}</div>
+                              <div className="text-xs text-gray-400">{item.address} • ⭐ {Number(item.average_rating).toFixed(1)}</div>
                             </div>
                           </div>
                           <button

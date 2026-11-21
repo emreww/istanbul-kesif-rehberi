@@ -13,6 +13,18 @@ export const metadata: Metadata = {
 
 const PAGE_SIZE = 12
 
+const EXCLUDED_CATEGORY_IDS = [
+  5, 9, 10, 11, 14, 16, 18, 19, 20, 22, 24, 26, 28, 29, 32, 33, 34, 36, 38,
+  40, 41, 43, 45, 48, 51, 54, 55, 56, 57, 59, 60, 61, 62, 63, 64, 66, 67, 68,
+  69, 70, 72, 73, 74, 75, 77, 78, 79, 80, 82, 87, 88, 89, 91, 92, 94, 98, 99,
+  100, 101, 102, 103, 104,
+  37, 49, 52, 53, 71, 86, 90, 105, 106, 107, 114, 115, 117, 118, 121, 122,
+  123, 124, 125, 128, 129, 131, 132, 133, 135, 137,
+]
+
+const EXCLUDED_SET = new Set(EXCLUDED_CATEGORY_IDS)
+const EXCLUDED_FILTER_VALUE = `(${EXCLUDED_CATEGORY_IDS.join(',')})`
+
 const OZELLIKLER = [
   { value: 'wifi', label: 'Wi-Fi' },
   { value: 'cocuk-dostu', label: 'Çocuk Dostu' },
@@ -47,192 +59,258 @@ const ILCELER = [
   'Ümraniye', 'Üsküdar', 'Zeytinburnu'
 ]
 
+function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array]
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[arr[i], arr[j]] = [arr[j], arr[i]]
+  }
+  return arr
+}
+
+function buildQueryString(sp: Record<string, string | string[] | undefined>, overrides: Record<string, string>) {
+  const params = new URLSearchParams()
+  Object.entries(sp).forEach(([key, val]) => {
+    if (!val) return
+    if (Array.isArray(val)) {
+      val.forEach((v) => params.append(key, v))
+    } else {
+      params.set(key, val)
+    }
+  })
+  Object.entries(overrides).forEach(([key, val]) => {
+    params.set(key, val)
+  })
+  return params.toString()
+}
+
 export default async function KesfetPage({
   searchParams,
 }: {
   searchParams?: Promise<{ [key: string]: string | string[] | undefined }>
 }) {
   const supabase = await createClient()
-  const sp = (await searchParams) as any
+  const sp = (await searchParams) ?? {}
 
-  const kategori = sp?.kategori as string | undefined
-  const ilce = sp?.ilce as string | undefined
-  const minPuan = sp?.minPuan ? Number(sp.minPuan) : undefined
-  const fiyat = sp?.fiyat ? Number(sp.fiyat) : undefined
-  const q = sp?.q as string | undefined
-  const siralama = (sp?.siralama as string) || 'populer'
-  const page = sp?.sayfa ? Math.max(1, Number(sp.sayfa)) : 1
-  const ozellikler = sp?.ozellikler
+  const kategori = typeof sp.kategori === 'string' ? sp.kategori : undefined
+  const ilce = typeof sp.ilce === 'string' ? sp.ilce : undefined
+  const minPuan = typeof sp.minPuan === 'string' && sp.minPuan ? Number(sp.minPuan) : undefined
+  const fiyat = typeof sp.fiyat === 'string' && sp.fiyat ? Number(sp.fiyat) : undefined
+  const q = typeof sp.q === 'string' && sp.q.trim() ? sp.q.trim() : undefined
+  const siralama = typeof sp.siralama === 'string' && sp.siralama ? sp.siralama : 'populer'
+  const view = typeof sp.view === 'string' ? sp.view : 'liste'
+  const page = typeof sp.sayfa === 'string' ? Math.max(1, Number(sp.sayfa) || 1) : 1
+  const ozellikler = sp.ozellikler
     ? Array.isArray(sp.ozellikler)
       ? sp.ozellikler
       : [sp.ozellikler]
     : []
 
-  // Categories sorgusu (Emoji desteği eklendi)
-  const { data: categories } = await supabase
-    .from('categories')
-    .select('id, name, slug, icon')
-    .order('id')
+  // 1. Kategorileri ve kullanıcıyı paralel çek
+  const [{ data: categories }, { data: { user } }] = await Promise.all([
+    supabase.from('categories').select('id, name, slug, icon').order('id'),
+    supabase.auth.getUser(),
+  ])
 
-  // --- Kullanıcıya özel öneriler ---
-  const { data: { user } } = await supabase.auth.getUser()
-  let recommendedPlaces: any[] = []
+  const selectedCategoryId = kategori
+    ? categories?.find((c) => c.slug === kategori)?.id
+    : undefined
 
-  if (user) {
-    const { data: favoriteData } = await supabase
-      .from('favorites')
-      .select('place_id, places ( category_id )')
-      .eq('user_id', user.id)
-      .limit(10)
-
-    const { data: reviewData } = await supabase
-      .from('reviews')
-      .select('place_id, places ( category_id )')
-      .eq('user_id', user.id)
-      .limit(10)
-
-    const categoryCounts: Record<number, number> = {}
-    const interactedPlaceIds = new Set<string>()
-
-    const processItems = (items: any, weight: number) => {
-      if (!items) return
-      const array = Array.isArray(items) ? items : [items]
-      array.forEach((item: any) => {
-        const place = Array.isArray(item.places) ? item.places[0] : item.places
-        const catId = place?.category_id
-        if (catId) categoryCounts[catId] = (categoryCounts[catId] || 0) + weight
-        if (item.place_id) interactedPlaceIds.add(item.place_id)
-      })
-    }
-
-    processItems(favoriteData, 1)
-    processItems(reviewData, 2)
-
-    const topCategories = Object.entries(categoryCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 3)
-      .map(([catId]) => Number(catId))
-
-    if (topCategories.length > 0) {
-      const { data } = await supabase
-        .from('places')
-        .select(`
-          id, name, district, average_rating, total_reviews, category_id,
-          categories ( name, icon )
-        `)
-        .eq('status', 'approved')
-        .in('category_id', topCategories)
-        .order('average_rating', { ascending: false })
-        .limit(10)
-
-      recommendedPlaces = data ?? []
-    }
-
-    recommendedPlaces = recommendedPlaces.filter(p => !interactedPlaceIds.has(p.id))
-
-    if (recommendedPlaces.length < 5) {
-      const { data: fallback } = await supabase
-        .from('places')
-        .select(`
-          id, name, district, average_rating, total_reviews, category_id,
-          categories ( name, icon )
-        `)
-        .eq('status', 'approved')
-        .order('average_rating', { ascending: false })
-        .limit(10)
-
-      const combined = [...recommendedPlaces]
-      ;(fallback ?? []).forEach((place) => {
-        if (!interactedPlaceIds.has(place.id) && !combined.find(p => p.id === place.id)) {
-          combined.push(place)
-        }
-      })
-      recommendedPlaces = combined.slice(0, 10)
-    }
-  }
-
-  // --- Sayfalamalı Normal Filtreleme Sorgusu ---
+  // 2. Ana listeleme sorgusunu hazırla
   const from = (page - 1) * PAGE_SIZE
   const to = from + PAGE_SIZE - 1
 
-  let query = supabase
+  let placesQuery = supabase
     .from('places')
-    .select(`
-      id, name, district, average_rating, total_reviews, total_photos, 
+    .select(
+      `
+      id, name, address, average_rating, total_reviews, total_photos,
       category_id, price_range, latitude, longitude,
       categories ( name, icon )
-    `, { count: 'exact' })
+    `,
+      { count: 'planned' }
+    )
     .eq('status', 'approved')
 
-  if (kategori) {
-    const selectedCategory = categories?.find((c) => c.slug === kategori)
-    if (selectedCategory) {
-      query = query.eq('category_id', selectedCategory.id)
-    }
+  if (selectedCategoryId) {
+    placesQuery = placesQuery.eq('category_id', selectedCategoryId)
   }
-
   if (ilce) {
-    query = query.eq('district', ilce)
+    placesQuery = placesQuery.ilike('address', `%${ilce}%`)
   }
-
   if (q) {
-    query = query.or(`name.ilike.%${q}%,district.ilike.%${q}%`)
+    placesQuery = placesQuery.or(`name.ilike.%${q}%,address.ilike.%${q}%`)
   }
-
   if (minPuan) {
-    query = query.gte('average_rating', minPuan)
+    placesQuery = placesQuery.gte('average_rating', minPuan)
   }
-
   if (fiyat) {
-    query = query.eq('price_range', fiyat)
+    placesQuery = placesQuery.eq('price_range', fiyat)
   }
-
   if (ozellikler.length > 0) {
-    query = query.contains('features', ozellikler)
+    placesQuery = placesQuery.contains('features', ozellikler)
   }
 
   switch (siralama) {
-    case 'populer':
-      query = query
-        .order('average_rating', { ascending: false })
-        .order('total_reviews', { ascending: false })
-      break
     case 'en-yeni':
-      query = query.order('created_at', { ascending: false })
+      placesQuery = placesQuery.order('created_at', { ascending: false })
       break
     case 'en-cok-yorum':
-      query = query.order('total_reviews', { ascending: false })
+      placesQuery = placesQuery.order('total_reviews', { ascending: false })
       break
     case 'en-yuksek-puan':
-      query = query.order('average_rating', { ascending: false })
+      placesQuery = placesQuery.order('average_rating', { ascending: false })
       break
     case 'en-cok-fotograf':
-      query = query.order('total_photos', { ascending: false })
+      placesQuery = placesQuery.order('total_photos', { ascending: false })
       break
+    case 'populer':
     default:
-      query = query
+      placesQuery = placesQuery
         .order('average_rating', { ascending: false })
         .order('total_reviews', { ascending: false })
+      break
   }
 
-  if (sp?.view !== 'harita') {
-    query = query.range(from, to)
+  if (view === 'harita') {
+    placesQuery = placesQuery.limit(100)
   } else {
-    query = query.limit(100)
+    placesQuery = placesQuery.range(from, to)
   }
 
-  const { data: places, count } = await query
-  const totalPages = count ? Math.ceil(count / PAGE_SIZE) : 1
+  // 3. Öneriler sorgusu (Favorilere göre eşit bölünmüş + yüksek yıldızlı + rastgele)
+  let recommendedPlaces: any[] = []
+  let recommendationTitle = '⭐ En Yüksek Puanlı Mekanlar'
+  let places: any[] | null = null
+  let count: number | null = null
 
+  const TARGET_RECOMMENDATIONS = 10
+
+  const topRatedQuery = supabase
+    .from('places')
+    .select(`
+      id, name, address, average_rating, total_reviews, category_id,
+      categories ( name, icon )
+    `)
+    .eq('status', 'approved')
+    .not('category_id', 'in', EXCLUDED_FILTER_VALUE)
+    .order('average_rating', { ascending: false })
+    .order('total_reviews', { ascending: false })
+    .limit(30)
+
+  if (user) {
+    const [{ data: favRows }, { data: topRatedData }, placesResult] = await Promise.all([
+      supabase
+        .from('favorites')
+        .select('place_id')
+        .eq('user_id', user.id)
+        .limit(50),
+      topRatedQuery,
+      placesQuery,
+    ])
+
+    places = placesResult.data
+    count = placesResult.count
+
+    const favoritedPlaceIds = new Set<string>(
+      (favRows ?? []).map((r: any) => r.place_id).filter(Boolean)
+    )
+
+    const favoriteCategorySet = new Set<number>()
+
+    if (favoritedPlaceIds.size > 0) {
+      const { data: favPlaces } = await supabase
+        .from('places')
+        .select('id, category_id')
+        .in('id', Array.from(favoritedPlaceIds))
+
+      ;(favPlaces ?? []).forEach((p: any) => {
+        const catId = Number(p.category_id)
+        if (catId && !EXCLUDED_SET.has(catId)) {
+          favoriteCategorySet.add(catId)
+        }
+      })
+    }
+
+    // Favori kategorilerini rastgele karıştırıp en fazla 5 tanesini seç (her birine eşit pay düşmesi için)
+    const activeFavCategories = shuffleArray(Array.from(favoriteCategorySet)).slice(0, 5)
+
+    if (activeFavCategories.length > 0) {
+      recommendationTitle = '✨ Sana Özel Öneriler'
+
+      // Her favori kategorisi için ayrı ayrı en yüksek puanlı ilk 30 mekanı paralel çek
+      const perCategoryResults = await Promise.all(
+        activeFavCategories.map((catId) =>
+          supabase
+            .from('places')
+            .select(`
+              id, name, address, average_rating, total_reviews, category_id,
+              categories ( name, icon )
+            `)
+            .eq('status', 'approved')
+            .eq('category_id', catId)
+            .order('average_rating', { ascending: false })
+            .order('total_reviews', { ascending: false })
+            .limit(30)
+        )
+      )
+
+      // Her kategorinin yüksek puanlı havuzundan favorilenmemişleri alıp rastgele karıştır
+      const categoryPools: any[][] = perCategoryResults.map((res) =>
+        shuffleArray((res.data ?? []).filter((p) => !favoritedPlaceIds.has(p.id)))
+      )
+
+      // Round-robin (sırayla 1'er tane alarak) kategoriler arasında EŞİT BÖL
+      const selected: any[] = []
+      const selectedIds = new Set<string>()
+      let addedInRound = true
+
+      while (selected.length < TARGET_RECOMMENDATIONS && addedInRound) {
+        addedInRound = false
+        for (let i = 0; i < categoryPools.length; i++) {
+          if (selected.length >= TARGET_RECOMMENDATIONS) break
+          const nextPlace = categoryPools[i].shift()
+          if (nextPlace && !selectedIds.has(nextPlace.id)) {
+            selected.push(nextPlace)
+            selectedIds.add(nextPlace.id)
+            addedInRound = true
+          }
+        }
+      }
+
+      // Eksik kalan slot varsa yüksek puanlı genel havuzdan rastgele tamamla
+      if (selected.length < TARGET_RECOMMENDATIONS) {
+        const shuffledFallback = shuffleArray(topRatedData ?? [])
+        for (const place of shuffledFallback) {
+          if (selected.length >= TARGET_RECOMMENDATIONS) break
+          if (!favoritedPlaceIds.has(place.id) && !selectedIds.has(place.id)) {
+            selected.push(place)
+            selectedIds.add(place.id)
+          }
+        }
+      }
+
+      // Kartların ekranda kategori sırasına göre dizilmemesi için son bir kez karıştır
+      recommendedPlaces = shuffleArray(selected)
+    } else {
+      // Kullanıcının henüz favorisi yoksa yüksek puanlılardan rastgele 10 mekan göster
+      recommendedPlaces = shuffleArray(topRatedData ?? []).slice(0, TARGET_RECOMMENDATIONS)
+    }
+  } else {
+    const [{ data: topRatedData }, placesResult] = await Promise.all([
+      topRatedQuery,
+      placesQuery,
+    ])
+
+    places = placesResult.data
+    count = placesResult.count
+    recommendedPlaces = shuffleArray(topRatedData ?? []).slice(0, TARGET_RECOMMENDATIONS)
+  }
+
+  const totalPages = count ? Math.ceil(count / PAGE_SIZE) : 1
   const mapPlaces = (places ?? []).filter(
     (place: any) => place.latitude && place.longitude
   )
-
-  const getPageUrl = (newPage: number) => {
-    const params = new URLSearchParams(sp as any)
-    params.set('sayfa', newPage.toString())
-    return `/kesfet?${params.toString()}`
-  }
 
   return (
     <div className="relative min-h-screen">
@@ -242,10 +320,10 @@ export default async function KesfetPage({
           <h1 className="text-3xl font-bold mb-8 text-gray-100">Keşfet</h1>
         </AnimatedSection>
 
-        {/* Sana Özel Öneriler */}
+        {/* Öneriler Bölümü */}
         {recommendedPlaces.length > 0 && (
           <div className="mb-8">
-            <h2 className="text-xl font-bold text-gray-100 mb-4">✨ Sana Özel Öneriler</h2>
+            <h2 className="text-xl font-bold text-gray-100 mb-4">{recommendationTitle}</h2>
             <div className="flex gap-4 overflow-x-auto pb-4">
               {recommendedPlaces.map((place) => {
                 const category = Array.isArray(place.categories) ? place.categories[0] : place.categories
@@ -259,7 +337,7 @@ export default async function KesfetPage({
                       {category?.icon || '📍'} {category?.name}
                     </span>
                     <h3 className="font-bold text-gray-100 mt-2">{place.name}</h3>
-                    <p className="text-gray-400 text-sm mt-1">{place.district}</p>
+                    <p className="text-gray-400 text-sm mt-1 line-clamp-1">{place.address}</p>
                     <div className="flex items-center gap-2 mt-2">
                       <span className="text-yellow-400">★</span>
                       <span className="text-gray-200 font-semibold">{Number(place.average_rating).toFixed(1)}</span>
@@ -278,7 +356,7 @@ export default async function KesfetPage({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">Arama</label>
-                <input type="text" name="q" defaultValue={q || ''} placeholder="Mekan veya ilçe..." className="input-field" />
+                <input type="text" name="q" defaultValue={q || ''} placeholder="Mekan veya adres..." className="input-field" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">Kategori</label>
@@ -357,129 +435,127 @@ export default async function KesfetPage({
 
         {/* Görünüm seçici */}
         <div className="flex gap-3 mb-6">
-          <a
-            href={`/kesfet?${new URLSearchParams({ ...(sp as any), view: 'liste' }).toString()}`}
+          <Link
+            href={`/kesfet?${buildQueryString(sp, { view: 'liste', sayfa: '1' })}`}
             className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-              (!sp?.view || sp.view === 'liste')
+              view !== 'harita'
                 ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
                 : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-white/20'
             }`}
           >
             📋 Liste
-          </a>
-          <a
-            href={`/kesfet?${new URLSearchParams({ ...(sp as any), view: 'harita' }).toString()}`}
+          </Link>
+          <Link
+            href={`/kesfet?${buildQueryString(sp, { view: 'harita', sayfa: '1' })}`}
             className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-              sp?.view === 'harita'
+              view === 'harita'
                 ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
                 : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-white/20'
             }`}
           >
             🗺️ Harita
-          </a>
+          </Link>
         </div>
 
         {/* İçerik */}
-        {sp?.view === 'harita' ? (
+        {view === 'harita' ? (
           <AnimatedSection>
             <MapView places={mapPlaces} />
           </AnimatedSection>
-        ) : (
-          places && places.length > 0 ? (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {places.map((place: any, index: number) => {
-                  const category = Array.isArray(place.categories) ? place.categories[0] : place.categories
-                  return (
-                    <AnimatedSection key={place.id} delay={index * 0.03}>
-                      <a href={`/mekan/${place.id}`} className="card block p-6">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-white/10 text-primary-400 border border-white/10 flex items-center gap-1.5">
-                            <span>{category?.icon || '📍'}</span>
-                            <span>{category?.name || 'Kategori Yok'}</span>
-                          </span>
-                        </div>
-                        <h2 className="font-bold text-lg text-gray-100">{place.name}</h2>
-                        <p className="text-gray-400 text-sm">{place.district}</p>
-                        <div className="mt-3 flex items-center gap-2">
-                          <span className="text-yellow-500">★</span>
-                          <span className="font-semibold text-gray-200">{Number(place.average_rating).toFixed(1)}</span>
-                          <span className="text-gray-400 text-sm">({place.total_reviews} yorum)</span>
-                        </div>
-                      </a>
-                    </AnimatedSection>
-                  )
-                })}
-              </div>
-
-              {/* Sayfalama Sekmesi (Pagination UI) */}
-              {totalPages > 1 && (
-                <div className="flex justify-center items-center gap-2 mt-12 pb-8">
-                  {page > 1 ? (
-                    <Link
-                      href={getPageUrl(page - 1)}
-                      className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 transition"
-                    >
-                      ← Önceki
+        ) : places && places.length > 0 ? (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {places.map((place: any, index: number) => {
+                const category = Array.isArray(place.categories) ? place.categories[0] : place.categories
+                return (
+                  <AnimatedSection key={place.id} delay={Math.min(index * 0.03, 0.3)}>
+                    <Link href={`/mekan/${place.id}`} className="card block p-6">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-white/10 text-primary-400 border border-white/10 flex items-center gap-1.5">
+                          <span>{category?.icon || '📍'}</span>
+                          <span>{category?.name || 'Kategori Yok'}</span>
+                        </span>
+                      </div>
+                      <h2 className="font-bold text-lg text-gray-100">{place.name}</h2>
+                      <p className="text-gray-400 text-sm line-clamp-1">{place.address}</p>
+                      <div className="mt-3 flex items-center gap-2">
+                        <span className="text-yellow-500">★</span>
+                        <span className="font-semibold text-gray-200">{Number(place.average_rating).toFixed(1)}</span>
+                        <span className="text-gray-400 text-sm">({place.total_reviews} yorum)</span>
+                      </div>
                     </Link>
-                  ) : (
-                    <span className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 text-gray-600 cursor-not-allowed">
-                      ← Önceki
-                    </span>
-                  )}
+                  </AnimatedSection>
+                )
+              })}
+            </div>
 
-                  <div className="flex items-center gap-1.5">
-                    {Array.from({ length: totalPages }, (_, i) => i + 1)
-                      .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
-                      .map((pageNum, idx, array) => {
-                        const showEllipsis = idx > 0 && pageNum - array[idx - 1] > 1
-                        return (
-                          <div key={pageNum} className="flex items-center gap-1.5">
-                            {showEllipsis && <span className="text-gray-500 px-1">...</span>}
-                            <Link
-                              href={getPageUrl(pageNum)}
-                              className={`px-4 py-2 rounded-xl font-medium transition ${
-                                page === pageNum
-                                  ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
-                                  : 'bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10'
-                              }`}
-                            >
-                              {pageNum}
-                            </Link>
-                          </div>
-                        )
-                      })}
-                  </div>
+            {/* Sayfalama Sekmesi */}
+            {totalPages > 1 && (
+              <div className="flex justify-center items-center gap-2 mt-12 pb-8">
+                {page > 1 ? (
+                  <Link
+                    href={`/kesfet?${buildQueryString(sp, { sayfa: String(page - 1) })}`}
+                    className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 transition"
+                  >
+                    ← Önceki
+                  </Link>
+                ) : (
+                  <span className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 text-gray-600 cursor-not-allowed">
+                    ← Önceki
+                  </span>
+                )}
 
-                  {page < totalPages ? (
-                    <Link
-                      href={getPageUrl(page + 1)}
-                      className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 transition"
-                    >
-                      Sonraki →
-                    </Link>
-                  ) : (
-                    <span className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 text-gray-600 cursor-not-allowed">
-                      Sonraki →
-                    </span>
-                  )}
+                <div className="flex items-center gap-1.5">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+                    .map((pageNum, idx, array) => {
+                      const showEllipsis = idx > 0 && pageNum - array[idx - 1] > 1
+                      return (
+                        <div key={pageNum} className="flex items-center gap-1.5">
+                          {showEllipsis && <span className="text-gray-500 px-1">...</span>}
+                          <Link
+                            href={`/kesfet?${buildQueryString(sp, { sayfa: String(pageNum) })}`}
+                            className={`px-4 py-2 rounded-xl font-medium transition ${
+                              page === pageNum
+                                ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
+                                : 'bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10'
+                            }`}
+                          >
+                            {pageNum}
+                          </Link>
+                        </div>
+                      )
+                    })}
                 </div>
-              )}
-            </>
-          ) : (
-            <AnimatedSection>
-              <EmptyState
-                icon="😕"
-                title="Aradığın kriterlere uygun mekan bulunamadı"
-                description="Filtreleri değiştirmeyi dene ya da çarkı çevirerek rastgele bir seçim yap."
-                action={
-                  <a href="/cark" className="inline-block px-6 py-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition">
-                    🎡 Çarkı Çevir!
-                  </a>
-                }
-              />
-            </AnimatedSection>
-          )
+
+                {page < totalPages ? (
+                  <Link
+                    href={`/kesfet?${buildQueryString(sp, { sayfa: String(page + 1) })}`}
+                    className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 transition"
+                  >
+                    Sonraki →
+                  </Link>
+                ) : (
+                  <span className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 text-gray-600 cursor-not-allowed">
+                    Sonraki →
+                  </span>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <AnimatedSection>
+            <EmptyState
+              icon="😕"
+              title="Aradığın kriterlere uygun mekan bulunamadı"
+              description="Filtreleri değiştirmeyi dene ya da çarkı çevirerek rastgele bir seçim yap."
+              action={
+                <Link href="/cark" className="inline-block px-6 py-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition">
+                  🎡 Çarkı Çevir!
+                </Link>
+              }
+            />
+          </AnimatedSection>
         )}
       </div>
     </div>

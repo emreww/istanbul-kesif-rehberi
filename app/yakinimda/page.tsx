@@ -8,7 +8,7 @@ import Link from 'next/link'
 interface NearbyPlace {
   id: string
   name: string
-  district: string
+  address: string
   average_rating: number
   total_reviews: number
   latitude: number
@@ -99,14 +99,14 @@ export default function YakinimdaPage() {
 
     let query = supabase
       .from('places')
-      .select('id, name, district, average_rating, total_reviews, latitude, longitude, price_range, category_id')
+      .select('id, name, address, average_rating, total_reviews, latitude, longitude, price_range, category_id')
       .eq('status', 'approved')
       .not('latitude', 'is', null)
       .not('longitude', 'is', null)
 
     // Arama
     if (q.trim()) {
-      query = query.or(`name.ilike.%${q}%,district.ilike.%${q}%`)
+      query = query.or(`name.ilike.%${q}%,address.ilike.%${q}%`)
     }
 
     // Kategori
@@ -262,7 +262,7 @@ export default function YakinimdaPage() {
                     <div>
                       <h2 className="text-xl font-bold text-gray-100">{place.name}</h2>
                       <p className="text-gray-400 text-sm mt-1">
-                        {place.district} • ⭐ {Number(place.average_rating).toFixed(1)} ({place.total_reviews} yorum)
+                        {place.address} • ⭐ {Number(place.average_rating).toFixed(1)} ({place.total_reviews} yorum)
                       </p>
                     </div>
                     <div className="text-right">
