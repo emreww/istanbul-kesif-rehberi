@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
-import { get, set } from 'idb-keyval'
 
 interface Place {
   id: string
@@ -13,7 +12,18 @@ interface Place {
   latitude: number
   longitude: number
   average_rating: number
+  category_id?: number | null
+  category_name?: string
+  category_icon?: string
   distanceFromUser?: number
+  district?: string
+}
+
+interface CategoryItem {
+  id: number
+  name: string
+  slug?: string
+  icon?: string | null
 }
 
 interface RouteStop {
@@ -24,13 +34,38 @@ interface RouteStop {
 }
 
 type TravelMode = 'driving' | 'walking' | 'transit'
-type PlaceTuple = [string, string, string | null, number, number, number]
+
+const ISTANBUL_DISTRICTS = [
+  'Adalar', 'Arnavutköy', 'Ataşehir', 'Avcılar', 'Bağcılar', 'Bahçelievler',
+  'Bakırköy', 'Başakşehir', 'Bayrampaşa', 'Beşiktaş', 'Beykoz', 'Beylikdüzü',
+  'Beyoğlu', 'Büyükçekmece', 'Çatalca', 'Çekmeköy', 'Esenler', 'Esenyurt',
+  'Eyüpsultan', 'Fatih', 'Gaziosmanpaşa', 'Güngören', 'Kadıköy', 'Kağıthane',
+  'Kartal', 'Küçükçekmece', 'Maltepe', 'Pendik', 'Sancaktepe', 'Sarıyer',
+  'Silivri', 'Sultanbeyli', 'Sultangazi', 'Şile', 'Şişli', 'Tuzla',
+  'Ümraniye', 'Üsküdar', 'Zeytinburnu',
+]
+
+function extractDistrict(address?: string): string {
+  if (!address) return 'Diğer'
+  const lower = address.toLocaleLowerCase('tr-TR')
+  for (const d of ISTANBUL_DISTRICTS) {
+    if (lower.includes(d.toLocaleLowerCase('tr-TR'))) {
+      return d
+    }
+  }
+  return 'Diğer'
+}
 
 export default function RoutePlannerPage() {
   const supabase = useMemo(() => createClient(), [])
 
   // Stateler
-  const [allPlaces, setAllPlaces] = useState<Place[]>([])
+  const [categories, setCategories] = useState<CategoryItem[]>([])
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null)
+  const [categoryRawPlaces, setCategoryRawPlaces] = useState<Place[]>([])
+  const [loadingPlaces, setLoadingPlaces] = useState(false)
+  const [loadingCategories, setLoadingCategories] = useState(true)
+
   const [selectedStops, setSelectedStops] = useState<RouteStop[]>([])
   const [activeStopIndex, setActiveStopIndex] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -41,16 +76,15 @@ export default function RoutePlannerPage() {
   const [isLocating, setIsLocating] = useState(false)
   const [isRoutingLoading, setIsRoutingLoading] = useState(false)
   const [realRouteStats, setRealRouteStats] = useState<{ distanceKm: number; durationMin: number } | null>(null)
-  const [loading, setLoading] = useState(true)
 
   // Leaflet refleri
   const mapContainerRef = useRef<HTMLDivElement>(null)
-  const mapInstanceRef = useRef<unknown>(null)
-  const markersRef = useRef<unknown[]>([])
-  const clusterGroupRef = useRef<unknown>(null)
-  const userMarkerRef = useRef<unknown>(null)
-  const polylineRef = useRef<unknown>(null)
-  const leafletLibRef = useRef<unknown>(null)
+  const mapInstanceRef = useRef<any>(null)
+  const markersRef = useRef<any[]>([])
+  const clusterGroupRef = useRef<any>(null)
+  const userMarkerRef = useRef<any>(null)
+  const polylineRef = useRef<any>(null)
+  const leafletLibRef = useRef<any>(null)
 
   // Mobil ekran tespiti
   useEffect(() => {
@@ -59,7 +93,16 @@ export default function RoutePlannerPage() {
     }
   }, [])
 
-  // Haversine formülü
+  // Sidebar açılıp kapandığında harita boyutunu yenile
+  useEffect(() => {
+    if (!mapInstanceRef.current || !leafletLoaded) return
+    const timer = setTimeout(() => {
+      mapInstanceRef.current?.invalidateSize?.()
+    }, 320)
+    return () => clearTimeout(timer)
+  }, [isSidebarOpen, leafletLoaded])
+
+  // Haversine mesafe hesabı (km)
   const calculateDistance = useCallback((lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371
     const dLat = ((lat2 - lat1) * Math.PI) / 180
@@ -72,6 +115,17 @@ export default function RoutePlannerPage() {
         Math.sin(dLon / 2)
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
     return R * c
+  }, [])
+
+  // Seyahat moduna göre tahmini süre (dakika)
+  const estimateDurationMinutes = useCallback((distanceKm: number, mode: TravelMode, osrmDurationSec?: number) => {
+    if (mode === 'driving' && typeof osrmDurationSec === 'number') {
+      return Math.max(1, Math.round(osrmDurationSec / 60))
+    }
+    if (mode === 'walking') {
+      return Math.max(1, Math.round((distanceKm / 4.8) * 60))
+    }
+    return Math.max(2, Math.round((distanceKm / 20) * 60 + 6))
   }, [])
 
   // Kullanıcı Konumu
@@ -88,9 +142,8 @@ export default function RoutePlannerPage() {
         setUserLocation(coords)
         setIsLocating(false)
 
-        const map = mapInstanceRef.current as any
-        if (map) {
-          map.setView([coords.lat, coords.lng], 14, { animate: true })
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setView([coords.lat, coords.lng], 14, { animate: true })
         }
       },
       (err) => {
@@ -102,14 +155,15 @@ export default function RoutePlannerPage() {
     )
   }, [])
 
+  // İlk açılışta sessiz konum kontrolü
   useEffect(() => {
-    if (navigator.geolocation) {
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude })
         },
         () => {},
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: false, timeout: 6000 }
       )
     }
   }, [])
@@ -127,81 +181,159 @@ export default function RoutePlannerPage() {
     })
   }, [])
 
-  // Mekanları Veritabanından Çek
+  // Kategorileri Yükle
   useEffect(() => {
     let isCancelled = false
 
-    async function fetchAllPlaces() {
+    async function fetchCategories() {
       try {
-        setLoading(true)
-
-        const CACHE_KEY = 'cached_places_v1'
-        const CACHE_TIME_KEY = 'cached_places_time_v1'
-        const ONE_HOUR = 60 * 60 * 1000
-
-        const cachedData = await get<Place[]>(CACHE_KEY)
-        const cacheTime = await get<number>(CACHE_TIME_KEY)
-
-        if (cachedData && cacheTime && Date.now() - cacheTime < ONE_HOUR) {
-          if (!isCancelled) {
-            setAllPlaces(cachedData)
-            setLoading(false)
-          }
-          return
-        }
-
-        const { data, error } = await supabase.rpc('get_all_approved_places')
+        setLoadingCategories(true)
+        const { data, error } = await supabase
+          .from('categories')
+          .select('id, name, slug, icon')
+          .order('id')
 
         if (error) {
-          console.error('Mekanlar çekilemedi:', error.message)
+          console.error('Kategoriler çekilemedi:', error.message)
           return
         }
 
-        const response = data as { p?: PlaceTuple[] } | null
-
-        if (response?.p) {
-          const mappedPlaces: Place[] = response.p.map((item) => ({
-            id: item[0],
-            name: item[1],
-            address: item[2] || '',
-            latitude: item[3],
-            longitude: item[4],
-            average_rating: item[5],
-          }))
-
-          if (!isCancelled) {
-            setAllPlaces(mappedPlaces)
-            await set(CACHE_KEY, mappedPlaces)
-            await set(CACHE_TIME_KEY, Date.now())
-          }
+        if (!isCancelled && data) {
+          setCategories(data)
         }
       } catch (err) {
-        console.error('Beklenmeyen hata:', err)
+        console.error('Kategori yükleme hatası:', err)
       } finally {
-        if (!isCancelled) setLoading(false)
+        if (!isCancelled) setLoadingCategories(false)
       }
     }
 
-    fetchAllPlaces()
+    fetchCategories()
     return () => {
       isCancelled = true
     }
   }, [supabase])
 
-  const placesWithDistance = useMemo(() => {
-    if (!userLocation) return allPlaces
+  const selectedCategoryObj = useMemo(
+    () => categories.find((c) => Number(c.id) === Number(selectedCategoryId)) ?? null,
+    [categories, selectedCategoryId]
+  )
 
-    return allPlaces.map((place) => ({
+  // Seçili Kategoriye Göre Her İlçeden En Yüksek Yıldızlı Mekanları Çek (Limit: 10000)
+  useEffect(() => {
+    let isCancelled = false
+
+    async function fetchPlacesByCategory() {
+      if (!selectedCategoryId) {
+        setCategoryRawPlaces([])
+        setLoadingPlaces(false)
+        return
+      }
+
+      try {
+        setLoadingPlaces(true)
+        const { data, error } = await supabase
+          .from('places')
+          .select('id, name, address, latitude, longitude, average_rating, category_id')
+          .eq('status', 'approved')
+          .eq('category_id', selectedCategoryId)
+          .not('latitude', 'is', null)
+          .not('longitude', 'is', null)
+          .order('average_rating', { ascending: false })
+          .limit(10000)
+
+        if (error) {
+          console.error('Kategori mekanları çekilemedi:', error.message)
+          if (!isCancelled) setCategoryRawPlaces([])
+          return
+        }
+
+        const mapped: Place[] = (data ?? [])
+          .filter((item: any) => typeof item.latitude === 'number' && typeof item.longitude === 'number')
+          .map((item: any) => ({
+            id: String(item.id),
+            name: item.name,
+            address: item.address || '',
+            latitude: Number(item.latitude),
+            longitude: Number(item.longitude),
+            average_rating: Number(item.average_rating ?? 0),
+            category_id: Number(item.category_id),
+            category_name: selectedCategoryObj?.name,
+            category_icon: selectedCategoryObj?.icon || '📍',
+            district: extractDistrict(item.address),
+          }))
+
+        // Her ilçedeki mekanları kendi içinde puana göre sıralayıp
+        // 1. sıra (ilçenin en yüksek yıldızlısı), 2. sıra, 3. sıra... şeklinde katmanlar halinde diz
+        const byDistrict = new Map<string, Place[]>()
+        for (const place of mapped) {
+          const dist = place.district || 'Diğer'
+          const bucket = byDistrict.get(dist) ?? []
+          bucket.push(place)
+          byDistrict.set(dist, bucket)
+        }
+
+        const districtBuckets = Array.from(byDistrict.values()).map((bucket) =>
+          bucket.sort((a, b) => Number(b.average_rating || 0) - Number(a.average_rating || 0))
+        )
+
+        const interleavedTopByDistrict: Place[] = []
+        let maxLen = 0
+        for (const bucket of districtBuckets) {
+          if (bucket.length > maxLen) maxLen = bucket.length
+        }
+
+        for (let rank = 0; rank < maxLen; rank++) {
+          const roundItems: Place[] = []
+          for (const bucket of districtBuckets) {
+            if (rank < bucket.length) {
+              roundItems.push(bucket[rank])
+            }
+          }
+          roundItems.sort((a, b) => Number(b.average_rating || 0) - Number(a.average_rating || 0))
+          interleavedTopByDistrict.push(...roundItems)
+        }
+
+        if (!isCancelled) {
+          setCategoryRawPlaces(interleavedTopByDistrict)
+        }
+      } catch (err) {
+        console.error('Mekan sorgu hatası:', err)
+        if (!isCancelled) setCategoryRawPlaces([])
+      } finally {
+        if (!isCancelled) setLoadingPlaces(false)
+      }
+    }
+
+    fetchPlacesByCategory()
+    return () => {
+      isCancelled = true
+    }
+  }, [supabase, selectedCategoryId, selectedCategoryObj?.name, selectedCategoryObj?.icon])
+
+  // Mesafe ve arama filtresi uygulanmış kategori mekanları
+  const categoryPlaces = useMemo(() => {
+    if (!selectedCategoryId) return []
+
+    const q = searchQuery.trim().toLowerCase()
+    const withDist = categoryRawPlaces.map((place) => ({
       ...place,
-      distanceFromUser: calculateDistance(
-        userLocation.lat,
-        userLocation.lng,
-        place.latitude,
-        place.longitude
-      ),
+      distanceFromUser: userLocation
+        ? calculateDistance(userLocation.lat, userLocation.lng, place.latitude, place.longitude)
+        : undefined,
     }))
-  }, [allPlaces, userLocation, calculateDistance])
 
+    if (!q) return withDist
+
+    return withDist.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        (p.address && p.address.toLowerCase().includes(q)) ||
+        (p.district && p.district.toLowerCase().includes(q))
+    )
+  }, [categoryRawPlaces, selectedCategoryId, searchQuery, userLocation, calculateDistance])
+
+  // En yakın komşu algoritması ile durak sıralama
   const handleSortByProximity = useCallback(() => {
     if (selectedStops.length <= 1) return
 
@@ -234,7 +366,7 @@ export default function RoutePlannerPage() {
     setSelectedStops(sorted.map((item, idx) => ({ ...item, order: idx + 1 })))
   }, [selectedStops, userLocation, calculateDistance])
 
-  // Leaflet Yükleme & Tip Hatası Çözülen Kısım
+  // Leaflet Başlatma
   useEffect(() => {
     let isMounted = true
 
@@ -245,12 +377,9 @@ export default function RoutePlannerPage() {
       await import('leaflet.markercluster')
       await import('leaflet.markercluster/dist/MarkerCluster.css')
 
-      if (!isMounted || !mapContainerRef.current) return
+      if (!isMounted || !mapContainerRef.current || mapInstanceRef.current) return
       leafletLibRef.current = L
 
-      if (mapInstanceRef.current) return
-
-      // (L.map as any) kullanarak 'tap' opsiyonunun verdiği TypeScript hatasını geçiyoruz
       const map = (L.map as any)(mapContainerRef.current, {
         center: [41.0082, 28.9784],
         zoom: 12,
@@ -273,6 +402,10 @@ export default function RoutePlannerPage() {
 
       L.control.zoom({ position: 'bottomright' }).addTo(map)
 
+      setTimeout(() => {
+        map.invalidateSize?.()
+      }, 150)
+
       mapInstanceRef.current = map
       setLeafletLoaded(true)
     }
@@ -282,7 +415,7 @@ export default function RoutePlannerPage() {
     return () => {
       isMounted = false
       if (mapInstanceRef.current) {
-        ;(mapInstanceRef.current as any).remove()
+        mapInstanceRef.current.remove()
         mapInstanceRef.current = null
       }
     }
@@ -290,12 +423,12 @@ export default function RoutePlannerPage() {
 
   // Kullanıcı Konumu Pini
   useEffect(() => {
-    const L = leafletLibRef.current as any
-    const map = mapInstanceRef.current as any
+    const L = leafletLibRef.current
+    const map = mapInstanceRef.current
     if (!L || !map || !userLocation) return
 
     if (userMarkerRef.current) {
-      map.removeLayer(userMarkerRef.current as any)
+      map.removeLayer(userMarkerRef.current)
       userMarkerRef.current = null
     }
 
@@ -343,118 +476,137 @@ export default function RoutePlannerPage() {
     userMarkerRef.current = marker
   }, [userLocation, leafletLoaded])
 
-  // Marker ve Rota Güncelleme
+  // Marker, Cluster ve Rota Güncelleme
   useEffect(() => {
-    const L = leafletLibRef.current as any
-    const map = mapInstanceRef.current as any
-    if (!L || !map) return
+    const L = leafletLibRef.current
+    const map = mapInstanceRef.current
+    if (!L || !map || !leafletLoaded) return
 
-    markersRef.current.forEach((m: any) => map.removeLayer(m))
+    markersRef.current.forEach((m) => map.removeLayer(m))
     markersRef.current = []
 
     if (clusterGroupRef.current) {
-      map.removeLayer(clusterGroupRef.current as any)
+      map.removeLayer(clusterGroupRef.current)
       clusterGroupRef.current = null
     }
 
     if (polylineRef.current) {
-      map.removeLayer(polylineRef.current as any)
+      map.removeLayer(polylineRef.current)
       polylineRef.current = null
     }
 
     const selectedPlaceIds = new Set(selectedStops.map((s) => s.place.id))
 
-    const markersCluster = L.markerClusterGroup({
-      chunkedLoading: true,
-      removeOutsideVisibleBounds: true,
-      animate: true,
-      animateAddingMarkers: false,
-      maxClusterRadius: 45,
-      disableClusteringAtZoom: 16,
-      spiderfyOnMaxZoom: true,
-      showCoverageOnHover: false,
-      iconCreateFunction: (cluster: any) => {
-        const count = cluster.getChildCount()
-        let cClass = 'cluster-small'
-        let size = 36
-        if (count > 25) { cClass = 'cluster-medium'; size = 42 }
-        if (count > 100) { cClass = 'cluster-large'; size = 48 }
+    if (selectedCategoryId && categoryPlaces.length > 0) {
+      const markersCluster = L.markerClusterGroup({
+        chunkedLoading: true,
+        removeOutsideVisibleBounds: true,
+        animate: true,
+        animateAddingMarkers: false,
+        maxClusterRadius: 45,
+        disableClusteringAtZoom: 16,
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false,
+        iconCreateFunction: (cluster: any) => {
+          const count = cluster.getChildCount()
+          let cClass = 'cluster-small'
+          let size = 36
+          if (count > 25) {
+            cClass = 'cluster-medium'
+            size = 42
+          }
+          if (count > 100) {
+            cClass = 'cluster-large'
+            size = 48
+          }
 
-        return L.divIcon({
-          html: `<div class="cluster-inner ${cClass}"><span>${count}</span></div>`,
-          className: 'custom-cluster-icon',
-          iconSize: L.point(size, size),
-        })
-      },
-    })
-
-    const unselectedMarkersList: any[] = []
-
-    placesWithDistance.forEach((place) => {
-      if (selectedPlaceIds.has(place.id)) return
-
-      const smallIcon = L.divIcon({
-        className: 'custom-unselected-pin',
-        html: `
-          <div style="
-            background: #1e293b;
-            border: 2px solid #f97316;
-            color: #f97316;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            cursor: pointer;
-          ">📍</div>
-        `,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
+          return L.divIcon({
+            html: `<div class="cluster-inner ${cClass}"><span>${count}</span></div>`,
+            className: 'custom-cluster-icon',
+            iconSize: L.point(size, size),
+          })
+        },
       })
 
-      const marker = L.marker([place.latitude, place.longitude], { icon: smallIcon })
+      const unselectedMarkersList: any[] = []
 
-      const distText = place.distanceFromUser
-        ? `<span style="color:#f97316; font-weight:600;"> • ${place.distanceFromUser.toFixed(1)} km</span>`
-        : ''
+      categoryPlaces.forEach((place) => {
+        if (selectedPlaceIds.has(place.id)) return
 
-      marker.bindPopup(`
-        <div style="font-family: sans-serif; color: #0f172a; padding: 4px;">
-          <h4 style="margin:0 0 4px 0; font-size:14px; font-weight:700;">${place.name}</h4>
-          <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${place.address || ''}${distText} • ⭐ ${Number(place.average_rating || 5).toFixed(1)}</p>
-          <button id="add-to-route-${place.id}" style="
-            background: #f97316;
-            color: white;
-            border: none;
-            padding: 6px 10px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: 600;
-            cursor: pointer;
-            width: 100%;
-          ">+ Rotaya Ekle</button>
-        </div>
-      `)
+        const smallIcon = L.divIcon({
+          className: 'custom-unselected-pin',
+          html: `
+            <div style="
+              background: #1e293b;
+              border: 2px solid #f97316;
+              color: #f97316;
+              width: 24px;
+              height: 24px;
+              border-radius: 50%;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-size: 11px;
+              box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+              cursor: pointer;
+            ">📍</div>
+          `,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        })
 
-      marker.on('popupopen', () => {
-        const btn = document.getElementById(`add-to-route-${place.id}`)
-        if (btn) {
-          btn.onclick = () => {
-            handleAddStop(place)
-            map.closePopup()
+        const marker = L.marker([place.latitude, place.longitude], { icon: smallIcon })
+
+        const distText =
+          typeof place.distanceFromUser === 'number'
+            ? `<span style="color:#f97316; font-weight:600;"> • ${place.distanceFromUser.toFixed(1)} km</span>`
+            : ''
+
+        marker.bindPopup(`
+          <div style="font-family: sans-serif; color: #0f172a; padding: 4px; min-width: 170px;">
+            <h4 style="margin:0 0 4px 0; font-size:14px; font-weight:700;">${place.name}</h4>
+            <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${place.address || ''}${distText} • ⭐ ${Number(place.average_rating || 5).toFixed(1)}</p>
+            <button data-place-id="${place.id}" class="js-add-stop-btn" style="
+              background: #f97316;
+              color: white;
+              border: none;
+              padding: 6px 10px;
+              border-radius: 6px;
+              font-size: 11px;
+              font-weight: 600;
+              cursor: pointer;
+              width: 100%;
+            ">+ Rotaya Ekle</button>
+          </div>
+        `)
+
+        marker.on('popupopen', (e: any) => {
+          const popupEl = e.popup?.getElement()
+          const btn = popupEl?.querySelector('.js-add-stop-btn') as HTMLButtonElement | null
+          if (btn) {
+            btn.onclick = () => {
+              handleAddStop(place)
+              map.closePopup()
+            }
+          }
+        })
+
+        unselectedMarkersList.push(marker)
+      })
+
+      if (unselectedMarkersList.length > 0) {
+        markersCluster.addLayers(unselectedMarkersList)
+        map.addLayer(markersCluster)
+        clusterGroupRef.current = markersCluster
+
+        if (selectedStops.length === 0) {
+          const bounds = markersCluster.getBounds()
+          if (bounds.isValid()) {
+            map.fitBounds(bounds, { padding: [45, 45], maxZoom: 14 })
           }
         }
-      })
-
-      unselectedMarkersList.push(marker)
-    })
-
-    markersCluster.addLayers(unselectedMarkersList)
-    map.addLayer(markersCluster)
-    clusterGroupRef.current = markersCluster
+      }
+    }
 
     const routeCoords: [number, number][] = []
 
@@ -496,7 +648,7 @@ export default function RoutePlannerPage() {
         <div style="font-family: sans-serif; color: #0f172a; padding: 4px;">
           <div style="font-size: 10px; font-weight: 800; color: #f97316; text-transform: uppercase;">DURAK #${idx + 1}</div>
           <h4 style="margin:2px 0 4px 0; font-size:14px; font-weight:700;">${stop.place.name}</h4>
-          <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${stop.place.address}</p>
+          <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${stop.place.address || ''}</p>
         </div>
       `)
 
@@ -504,6 +656,30 @@ export default function RoutePlannerPage() {
     })
 
     let isCancelled = false
+
+    const applyPolyline = (path: [number, number][], distanceKm: number, durationMin: number) => {
+      const polyline = L.polyline(path, {
+        color: '#f97316',
+        weight: travelMode === 'driving' ? 6 : 5,
+        opacity: 0.9,
+        dashArray: travelMode === 'walking' ? '8, 8' : travelMode === 'transit' ? '12, 6' : undefined,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(map)
+
+      polylineRef.current = polyline
+      setRealRouteStats({ distanceKm, durationMin })
+      map.fitBounds(polyline.getBounds(), { padding: [40, 40] })
+    }
+
+    const fallbackDirectPolyline = (coords: [number, number][]) => {
+      let totalKm = 0
+      for (let i = 0; i < coords.length - 1; i++) {
+        totalKm += calculateDistance(coords[i][0], coords[i][1], coords[i + 1][0], coords[i + 1][1])
+      }
+      const roundedKm = Number(totalKm.toFixed(1))
+      applyPolyline(coords, roundedKm, estimateDurationMinutes(roundedKm, travelMode))
+    }
 
     if (routeCoords.length >= 2) {
       setIsRoutingLoading(true)
@@ -522,22 +698,9 @@ export default function RoutePlannerPage() {
             const path: [number, number][] = routeData.geometry.coordinates.map(
               (c: [number, number]) => [c[1], c[0]]
             )
-
             const distKm = Number((routeData.distance / 1000).toFixed(1))
-            const durMin = Math.round(routeData.duration / 60)
-            setRealRouteStats({ distanceKm: distKm, durationMin: durMin })
-
-            const polyline = L.polyline(path, {
-              color: '#f97316',
-              weight: 6,
-              opacity: 0.9,
-              dashArray: travelMode === 'walking' ? '8, 8' : undefined,
-              lineCap: 'round',
-              lineJoin: 'round',
-            }).addTo(map)
-
-            polylineRef.current = polyline
-            map.fitBounds(polyline.getBounds(), { padding: [40, 40] })
+            const durMin = estimateDurationMinutes(distKm, travelMode, routeData.duration)
+            applyPolyline(path, distKm, durMin)
           } else {
             fallbackDirectPolyline(routeCoords)
           }
@@ -550,74 +713,49 @@ export default function RoutePlannerPage() {
         })
     } else if (routeCoords.length === 1) {
       setRealRouteStats(null)
+      setIsRoutingLoading(false)
       map.setView(routeCoords[0], 14, { animate: true })
     } else {
       setRealRouteStats(null)
-    }
-
-    function fallbackDirectPolyline(coords: [number, number][]) {
-      const polyline = L.polyline(coords, {
-        color: '#f97316',
-        weight: 5,
-        opacity: 0.85,
-        dashArray: travelMode === 'walking' ? '8, 8' : undefined,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(map)
-      polylineRef.current = polyline
-      map.fitBounds(polyline.getBounds(), { padding: [40, 40] })
+      setIsRoutingLoading(false)
     }
 
     return () => {
       isCancelled = true
     }
-  }, [placesWithDistance, selectedStops, travelMode, leafletLoaded, handleAddStop])
+  }, [categoryPlaces, selectedCategoryId, selectedStops, travelMode, leafletLoaded, handleAddStop, calculateDistance, estimateDurationMinutes])
 
-  const handleRemoveStop = (index: number) => {
+  const handleRemoveStop = useCallback((index: number) => {
     setSelectedStops((prev) => {
       const filtered = prev.filter((_, i) => i !== index)
       return filtered.map((item, idx) => ({ ...item, order: idx + 1 }))
     })
-  }
+    setActiveStopIndex((prev) => (prev === index ? null : prev))
+  }, [])
 
-  const handleMoveStop = (index: number, direction: 'up' | 'down') => {
+  const handleMoveStop = useCallback((index: number, direction: 'up' | 'down') => {
     const targetIndex = direction === 'up' ? index - 1 : index + 1
-    if (targetIndex < 0 || targetIndex >= selectedStops.length) return
-
     setSelectedStops((prev) => {
+      if (targetIndex < 0 || targetIndex >= prev.length) return prev
       const copy = [...prev]
       const temp = copy[index]
       copy[index] = copy[targetIndex]
       copy[targetIndex] = temp
       return copy.map((item, idx) => ({ ...item, order: idx + 1 }))
     })
-  }
+  }, [])
 
-  const handleFocusPlace = (lat: number, lng: number, index: number) => {
+  const handleFocusPlace = useCallback((lat: number, lng: number, index: number) => {
     setActiveStopIndex(index)
     if (mapInstanceRef.current) {
-      ;(mapInstanceRef.current as any).setView([lat, lng], 15, { animate: true })
+      mapInstanceRef.current.setView([lat, lng], 15, { animate: true })
     }
-    if (window.innerWidth < 768) {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
       setIsSidebarOpen(false)
     }
-  }
+  }, [])
 
-  const filteredPlaces = useMemo(() => {
-    if (!searchQuery.trim()) return []
-    const q = searchQuery.toLowerCase()
-    const results = placesWithDistance
-      .filter((p) => p.name.toLowerCase().includes(q) || p.address?.toLowerCase().includes(q))
-      .filter((p) => !selectedStops.some((s) => s.place.id === p.id))
-
-    if (userLocation) {
-      results.sort((a, b) => (a.distanceFromUser || 0) - (b.distanceFromUser || 0))
-    }
-
-    return results.slice(0, 6)
-  }, [placesWithDistance, searchQuery, selectedStops, userLocation])
-
-  const handleOpenInGoogleMaps = () => {
+  const handleOpenInGoogleMaps = useCallback(() => {
     if (selectedStops.length === 0) return
 
     if (selectedStops.length === 1) {
@@ -638,7 +776,7 @@ export default function RoutePlannerPage() {
     const mode = travelMode === 'walking' ? 'walking' : travelMode === 'transit' ? 'transit' : 'driving'
     const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints}&travelmode=${mode}`
     window.open(url, '_blank')
-  }
+  }, [selectedStops, travelMode])
 
   return (
     <div className="relative w-full h-[calc(100dvh-64px)] overflow-hidden bg-gray-950 flex flex-col md:flex-row">
@@ -646,15 +784,17 @@ export default function RoutePlannerPage() {
       <div
         className={`fixed md:relative inset-x-0 bottom-0 z-30 transition-all duration-300 flex flex-col bg-gray-900/95 backdrop-blur-xl border-t md:border-t-0 md:border-r border-white/10 shadow-2xl ${
           isSidebarOpen
-            ? 'h-[80dvh] md:h-full w-full md:w-[420px] lg:w-[460px] translate-y-0'
-            : 'h-14 md:h-full w-full md:w-0 md:overflow-hidden translate-y-0 md:translate-y-0'
+            ? 'h-[80dvh] md:h-full w-full md:w-[420px] lg:w-[460px]'
+            : 'h-14 md:h-full w-full md:w-0 md:overflow-hidden'
         }`}
       >
         {/* Panel Header & Mobil Tutamaç */}
-        <div 
+        <div
           className="p-3 md:p-4 border-b border-white/10 bg-gray-900/80 cursor-pointer md:cursor-default"
           onClick={() => {
-            if (window.innerWidth < 768) setIsSidebarOpen(!isSidebarOpen)
+            if (typeof window !== 'undefined' && window.innerWidth < 768) {
+              setIsSidebarOpen((prev) => !prev)
+            }
           }}
         >
           <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-2 md:hidden" />
@@ -669,7 +809,7 @@ export default function RoutePlannerPage() {
                 </span>
               )}
             </div>
-            
+
             <div className="flex items-center gap-2">
               <Link
                 href="/kesfet"
@@ -679,10 +819,11 @@ export default function RoutePlannerPage() {
                 Mekanlar →
               </Link>
               <button
+                type="button"
                 className="md:hidden text-gray-400 p-1"
                 onClick={(e) => {
                   e.stopPropagation()
-                  setIsSidebarOpen(!isSidebarOpen)
+                  setIsSidebarOpen((prev) => !prev)
                 }}
               >
                 {isSidebarOpen ? '✕' : '▲'}
@@ -691,12 +832,13 @@ export default function RoutePlannerPage() {
           </div>
 
           {/* Seyahat Modu Seçici */}
-          <div 
+          <div
             className={`${isSidebarOpen ? 'block' : 'hidden md:block'}`}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="grid grid-cols-3 gap-1 bg-gray-800/80 p-1 rounded-xl border border-white/5 mb-3">
               <button
+                type="button"
                 onClick={() => setTravelMode('driving')}
                 className={`flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-semibold transition ${
                   travelMode === 'driving'
@@ -707,6 +849,7 @@ export default function RoutePlannerPage() {
                 <span>🚗</span> Araç
               </button>
               <button
+                type="button"
                 onClick={() => setTravelMode('walking')}
                 className={`flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-semibold transition ${
                   travelMode === 'walking'
@@ -717,6 +860,7 @@ export default function RoutePlannerPage() {
                 <span>🚶</span> Yürüyüş
               </button>
               <button
+                type="button"
                 onClick={() => setTravelMode('transit')}
                 className={`flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-semibold transition ${
                   travelMode === 'transit'
@@ -730,6 +874,7 @@ export default function RoutePlannerPage() {
 
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={handleGetUserLocation}
                 disabled={isLocating}
                 className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition border ${
@@ -744,6 +889,7 @@ export default function RoutePlannerPage() {
 
               {selectedStops.length >= 2 && (
                 <button
+                  type="button"
                   onClick={handleSortByProximity}
                   className="py-1.5 px-3 rounded-lg text-xs font-semibold bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30 transition flex items-center gap-1.5"
                 >
@@ -757,85 +903,155 @@ export default function RoutePlannerPage() {
         {/* Panel Gövdesi */}
         {isSidebarOpen && (
           <>
-            <div className="p-3 md:p-4 border-b border-white/10">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Rotaya eklenecek mekan ara..."
-                  className="input-field pl-9 pr-8 text-sm w-full"
-                />
-                <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-300 text-xs"
-                  >
-                    ✕
-                  </button>
-                )}
+            {/* Kategori Seçimi ve Kategori İçi Arama */}
+            <div className="p-3 md:p-4 border-b border-white/10 space-y-2.5">
+              <div>
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+                  Kategori Seçin
+                </label>
+                <select
+                  value={selectedCategoryId ?? ''}
+                  onChange={(e) => {
+                    const val = e.target.value ? Number(e.target.value) : null
+                    setSelectedCategoryId(val)
+                    setSearchQuery('')
+                  }}
+                  disabled={loadingCategories}
+                  className="input-field text-sm w-full"
+                >
+                  <option value="">
+                    {loadingCategories ? 'Kategoriler yükleniyor...' : 'Kategori seçiniz (Harita boş başlar)'}
+                  </option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.icon ? `${cat.icon} ` : '📍 '}
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <AnimatePresence>
-                {filteredPlaces.length > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    className="mt-2 bg-gray-800 border border-white/15 rounded-xl overflow-hidden shadow-2xl divide-y divide-white/5 max-h-48 overflow-y-auto"
-                  >
-                    {filteredPlaces.map((place) => (
-                      <div
-                        key={place.id}
-                        className="p-2.5 hover:bg-gray-700/60 transition flex items-center justify-between gap-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-gray-200 truncate">{place.name}</p>
-                          <p className="text-xs text-gray-400 truncate">
-                            {place.address}
-                            {place.distanceFromUser && (
-                              <span className="text-primary-400 font-semibold"> • {place.distanceFromUser.toFixed(1)} km</span>
-                            )}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            handleAddStop(place)
-                            setSearchQuery('')
-                          }}
-                          className="px-2.5 py-1 bg-primary-500/20 hover:bg-primary-500 text-primary-300 hover:text-white rounded-lg text-xs font-semibold transition flex-shrink-0"
-                        >
-                          + Ekle
-                        </button>
-                      </div>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {selectedCategoryId && (
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={`${selectedCategoryObj?.name || 'Kategori'} içinde ara...`}
+                    className="input-field pl-9 pr-8 text-sm w-full"
+                  />
+                  <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-300 text-xs"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-3">
-              {loading ? (
-                <div className="text-center py-8 text-xs text-gray-400">
-                  Mekanlar Yükleniyor...
-                </div>
-              ) : selectedStops.length === 0 ? (
-                <div className="text-center py-6 px-4">
+            <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-4">
+              {!selectedCategoryId ? (
+                <div className="text-center py-6 px-4 bg-white/[0.02] border border-white/10 rounded-2xl">
                   <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center text-xl">
-                    📍
+                    🗂️
                   </div>
-                  <h3 className="text-sm font-bold text-gray-200">Rotanız Boş</h3>
-                  <p className="text-xs text-gray-400 mt-1 max-w-[240px] mx-auto">
-                    Mekan arayarak veya haritadaki pinlere dokunarak ekleyebilirsiniz.
+                  <h3 className="text-sm font-bold text-gray-200">Önce Bir Kategori Seçin</h3>
+                  <p className="text-xs text-gray-400 mt-1 max-w-[260px] mx-auto">
+                    Başlangıçta harita boş durur. Yukarıdan kategori seçtiğinizde o kategorideki mekanlar listelenir ve haritada görünür.
                   </p>
+                </div>
+              ) : loadingPlaces ? (
+                <div className="text-center py-8 text-xs text-gray-400">
+                  {selectedCategoryObj?.name || 'Kategori'} mekanları yükleniyor...
                 </div>
               ) : (
                 <div>
                   <div className="flex items-center justify-between text-xs text-gray-400 font-semibold mb-2 px-1">
-                    <span>DURAKLAR ({selectedStops.length})</span>
+                    <span>
+                      {selectedCategoryObj?.icon || '📍'} {selectedCategoryObj?.name} ({categoryPlaces.length})
+                    </span>
                     <button
-                      onClick={() => setSelectedStops([])}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCategoryId(null)
+                        setSearchQuery('')
+                      }}
+                      className="text-gray-400 hover:text-gray-200 transition"
+                    >
+                      Kategoriyi Kapat
+                    </button>
+                  </div>
+
+                  {categoryPlaces.length === 0 ? (
+                    <div className="text-center py-6 px-3 text-xs text-gray-400 bg-white/[0.02] rounded-xl border border-white/5">
+                      Bu kategoride kayıtlı mekan bulunamadı.
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      <AnimatePresence initial={false}>
+                        {categoryPlaces.map((place) => {
+                          const isAdded = selectedStops.some((s) => s.place.id === place.id)
+                          return (
+                            <motion.div
+                              key={place.id}
+                              initial={{ opacity: 0, y: 4 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0 }}
+                              className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition flex items-center justify-between gap-2"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-xs md:text-sm font-semibold text-gray-100 truncate">
+                                  {place.name}
+                                </p>
+                                <p className="text-[11px] text-gray-400 truncate">
+                                  ⭐ {Number(place.average_rating || 5).toFixed(1)}
+                                  {place.district && place.district !== 'Diğer' ? ` • ${place.district}` : ''}
+                                  {place.address ? ` • ${place.address}` : ''}
+                                  {typeof place.distanceFromUser === 'number' && (
+                                    <span className="text-primary-400 font-semibold">
+                                      {' '}
+                                      • {place.distanceFromUser.toFixed(1)} km
+                                    </span>
+                                  )}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={isAdded}
+                                onClick={() => handleAddStop(place)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex-shrink-0 ${
+                                  isAdded
+                                    ? 'bg-emerald-500/20 text-emerald-300 cursor-default'
+                                    : 'bg-primary-500/20 hover:bg-primary-500 text-primary-300 hover:text-white'
+                                }`}
+                              >
+                                {isAdded ? 'Eklendi ✓' : '+ Ekle'}
+                              </button>
+                            </motion.div>
+                          )
+                        })}
+                      </AnimatePresence>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Seçili Rota Durakları */}
+              {selectedStops.length > 0 && (
+                <div className="pt-2 border-t border-white/10">
+                  <div className="flex items-center justify-between text-xs text-gray-400 font-semibold mb-2 px-1">
+                    <span>ROTADAKİ DURAKLAR ({selectedStops.length})</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedStops([])
+                        setActiveStopIndex(null)
+                      }}
                       className="text-red-400 hover:text-red-300 transition"
                     >
                       Temizle
@@ -872,6 +1088,7 @@ export default function RoutePlannerPage() {
 
                           <div className="flex items-center gap-1">
                             <button
+                              type="button"
                               disabled={idx === 0}
                               onClick={() => handleMoveStop(idx, 'up')}
                               className="p-1 text-gray-400 disabled:opacity-20 text-xs"
@@ -879,6 +1096,7 @@ export default function RoutePlannerPage() {
                               ▲
                             </button>
                             <button
+                              type="button"
                               disabled={idx === selectedStops.length - 1}
                               onClick={() => handleMoveStop(idx, 'down')}
                               className="p-1 text-gray-400 disabled:opacity-20 text-xs"
@@ -886,6 +1104,7 @@ export default function RoutePlannerPage() {
                               ▼
                             </button>
                             <button
+                              type="button"
                               onClick={() => handleRemoveStop(idx)}
                               className="p-1 text-gray-400 hover:text-red-400 text-xs ml-1"
                             >
@@ -922,6 +1141,7 @@ export default function RoutePlannerPage() {
                 </div>
 
                 <button
+                  type="button"
                   onClick={handleOpenInGoogleMaps}
                   className="btn-primary w-full py-2.5 text-xs md:text-sm font-bold flex items-center justify-center gap-2"
                 >
@@ -935,8 +1155,9 @@ export default function RoutePlannerPage() {
 
       {/* DESKTOP PANEL AÇ/KAPA BUTONU */}
       <button
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="hidden md:flex absolute top-4 left-4 z-30 static my-auto -ml-3 h-10 w-7 bg-gray-800 text-gray-300 hover:text-white rounded-r-lg border border-white/10 items-center justify-center shadow-lg transition"
+        type="button"
+        onClick={() => setIsSidebarOpen((prev) => !prev)}
+        className="hidden md:flex my-auto -ml-3 z-30 h-10 w-7 bg-gray-800 text-gray-300 hover:text-white rounded-r-lg border border-white/10 items-center justify-center shadow-lg transition flex-shrink-0"
         title={isSidebarOpen ? 'Paneli Gizle' : 'Paneli Göster'}
       >
         {isSidebarOpen ? '◀' : '▶'}
@@ -948,8 +1169,16 @@ export default function RoutePlannerPage() {
 
         <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-1.5 pointer-events-none">
           <div className="glass-panel px-2.5 py-1 rounded-full text-[11px] font-semibold text-gray-200 border border-white/10 shadow-lg flex items-center gap-1.5 pointer-events-auto bg-gray-900/80">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>{allPlaces.length} Mekan</span>
+            <span
+              className={`w-2 h-2 rounded-full ${
+                selectedCategoryId ? 'bg-emerald-500 animate-pulse' : 'bg-gray-500'
+              }`}
+            />
+            <span>
+              {selectedCategoryId
+                ? `${categoryPlaces.length} Mekan (${selectedCategoryObj?.name || 'Kategori'})`
+                : 'Kategori Seçilmedi'}
+            </span>
           </div>
 
           {isRoutingLoading && (
