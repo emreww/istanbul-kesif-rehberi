@@ -25,8 +25,9 @@ export default function AnimatedSection({
   return (
     <motion.div
       initial="hidden"
-      animate="visible"
-      transition={{ duration: 0.5, delay }}
+      whileInView="visible"
+      viewport={{ once: true, amount: "some" }}
+      transition={{ duration: 0.4, delay }}
       variants={variants[variant]}
     >
       {children}

@@ -3,6 +3,21 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import {
+  Compass,
+  Plus,
+  User,
+  Shield,
+  Disc,
+  BookmarkCheck,
+  Award,
+  MessageSquare,
+  Bell,
+  LogOut,
+  ChevronDown,
+  Menu,
+  X,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 export default function Navbar() {
@@ -14,12 +29,10 @@ export default function Navbar() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [dropdownOpen, setDropdownOpen] = useState(false)
-  
-  // Supabase istemcisini lazy state ile güvenli başlatıyoruz
+
   const [supabase] = useState(() => createClient())
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  // Admin sayfasında navbar'ı gizlemek için boolean bir değer tutalım
   const hideNavbar = pathname?.startsWith('/admin')
 
   useEffect(() => {
@@ -91,7 +104,6 @@ export default function Navbar() {
     { href: '/yakinimda', label: 'Yakınımda' },
     { href: '/listeler', label: 'Listeler' },
     { href: '/kullanicilar', label: 'Kullanıcılar' },
-    { href: '/mekan-ekle', label: 'Mekan Ekle' },
   ]
 
   if (hideNavbar) {
@@ -100,155 +112,188 @@ export default function Navbar() {
 
   return (
     <nav
-      className={`sticky top-0 z-50 transition-all duration-300 ${
+      className={`sticky top-0 z-50 transition-all duration-300 border-b ${
         scrolled
-          ? 'bg-gray-900/95 shadow-lg backdrop-blur-md'
-          : 'bg-gray-900/80 shadow-md backdrop-blur-sm'
+          ? 'bg-[#070b14]/92 border-slate-800/90 shadow-xl shadow-black/30 backdrop-blur-xl'
+          : 'bg-[#070b14]/75 border-slate-800/60 backdrop-blur-md'
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16 items-center">
-          {/* Logo */}
+        <div className="flex justify-between h-16 items-center gap-4">
+          {/* Sol: Marka Logosu */}
           <Link
             href="/"
-            className="text-xl font-bold text-primary-500 hover:text-primary-400 transition-all duration-200 hover:scale-105"
+            className="inline-flex items-center gap-2.5 shrink-0 group"
           >
-            🏙️ İstanbul Keşif
+            <span className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/30 flex items-center justify-center text-amber-400 group-hover:bg-amber-400 group-hover:text-slate-950 transition-all duration-200">
+              <Compass className="w-4 h-4" strokeWidth={2} />
+            </span>
+            <span className="font-serif text-lg sm:text-xl text-white group-hover:text-amber-300 transition-colors">
+              İstanbul Keşif
+            </span>
           </Link>
 
-          {/* Masaüstü menü */}
-          <div className="hidden md:flex items-center space-x-2">
+          {/* Orta: Masaüstü Gezinti Linkleri */}
+          <div className="hidden lg:flex items-center gap-1 rounded-full bg-slate-900/70 border border-slate-800/80 px-2 py-1">
             {navLinks.map((link) => {
               const active = isActive(link.href)
               return (
                 <Link
                   key={link.href}
                   href={link.href}
-                  className={`relative px-4 py-2 rounded-lg group transition-colors duration-200 ${
+                  className={`relative px-3.5 py-1.5 rounded-full text-sm transition-all duration-200 ${
                     active
-                      ? 'text-primary-400 font-semibold'
-                      : 'text-gray-300 hover:text-primary-400'
+                      ? 'bg-amber-400/15 text-amber-300 font-semibold border border-amber-400/30'
+                      : 'text-slate-300 hover:text-amber-300 hover:bg-slate-800/60'
                   }`}
                 >
                   {link.label}
-                  <span
-                    className={`absolute left-3 right-3 -bottom-0.5 h-0.5 rounded-full bg-primary-500 transform transition-transform duration-200 origin-left ${
-                      active ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100'
-                    }`}
-                  />
                 </Link>
               )
             })}
+          </div>
+
+          {/* Sağ: Mekan Ekle + Kullanıcı / Giriş */}
+          <div className="hidden md:flex items-center gap-3 shrink-0">
+            <Link
+              href="/mekan-ekle"
+              className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all duration-200 ${
+                isActive('/mekan-ekle')
+                  ? 'bg-amber-400 text-slate-950 border-amber-400'
+                  : 'bg-slate-900/80 text-amber-300 border-amber-400/30 hover:border-amber-400/70 hover:bg-amber-400/10'
+              }`}
+            >
+              <Plus className="w-3.5 h-3.5" strokeWidth={2.2} />
+              <span>Mekan Ekle</span>
+            </Link>
 
             {user ? (
               <div
-                className="relative ml-2"
+                className="relative"
                 ref={dropdownRef}
                 onMouseEnter={() => setDropdownOpen(true)}
                 onMouseLeave={() => setDropdownOpen(false)}
               >
-                <button className="flex items-center space-x-2 px-3 py-2 rounded-full hover:bg-gray-800 transition-all duration-200 group">
-                  <div className="w-8 h-8 rounded-full bg-primary-400 flex items-center justify-center text-white font-semibold ring-2 ring-transparent group-hover:ring-primary-500 transition-all duration-200">
+                <button
+                  type="button"
+                  onClick={() => setDropdownOpen((prev) => !prev)}
+                  className="flex items-center gap-2.5 pl-1.5 pr-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 hover:border-amber-400/40 transition-all duration-200 group"
+                >
+                  <div className="w-7 h-7 rounded-full bg-amber-400/15 border border-amber-400/40 flex items-center justify-center text-amber-300 text-xs font-semibold overflow-hidden">
                     {user.user_metadata?.avatar_url ? (
                       <img
                         src={user.user_metadata.avatar_url}
                         alt="avatar"
-                        className="w-full h-full rounded-full object-cover"
+                        className="w-full h-full object-cover"
                       />
                     ) : (
                       (user.user_metadata?.username?.[0] || user.email?.[0] || 'K').toUpperCase()
                     )}
                   </div>
-                  <span className="text-gray-300 font-medium">
+                  <span className="text-sm font-medium text-slate-200 group-hover:text-amber-300 transition-colors max-w-[130px] truncate">
                     {user.user_metadata?.username || user.email}
                   </span>
-                  <svg
-                    className={`w-4 h-4 text-gray-500 transition-transform duration-200 ${
-                      dropdownOpen ? 'rotate-180' : ''
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
+                      dropdownOpen ? 'rotate-180 text-amber-400' : ''
                     }`}
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
+                    strokeWidth={1.8}
+                  />
                 </button>
 
                 <AnimatePresence>
                   {dropdownOpen && (
                     <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                      initial={{ opacity: 0, y: 8, scale: 0.97 }}
                       animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                      exit={{ opacity: 0, y: 8, scale: 0.97 }}
                       transition={{ duration: 0.15 }}
-                      className="absolute right-0 mt-2 w-48 bg-gray-800 rounded-xl shadow-xl border border-gray-700 py-2 z-50"
+                      className="absolute right-0 mt-2 w-52 bg-[#0c1220] rounded-2xl shadow-2xl shadow-black/50 border border-slate-800 py-2 z-50"
                     >
                       <Link
                         href={`/profil/${user.id}`}
                         onClick={() => setDropdownOpen(false)}
-                        className="block px-4 py-2 text-gray-300 hover:bg-gray-700 hover:text-primary-400 transition"
+                        className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800/70 hover:text-amber-300 transition-colors"
                       >
-                        👤 Profilim
+                        <User className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                        <span>Profilim</span>
                       </Link>
+
                       {isAdmin && (
                         <Link
                           href="/admin"
                           onClick={() => setDropdownOpen(false)}
-                          className="block px-4 py-2 text-amber-400 hover:bg-amber-500/10 font-medium transition"
+                          className="flex items-center gap-2.5 px-4 py-2 text-sm text-amber-400 hover:bg-amber-400/10 font-medium transition-colors"
                         >
-                          🛠️ Admin Panel
+                          <Shield className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                          <span>Admin Panel</span>
                         </Link>
                       )}
+
                       <Link
                         href="/cark"
                         onClick={() => setDropdownOpen(false)}
-                        className="block px-4 py-2 text-gray-300 hover:bg-gray-700 hover:text-primary-400 transition"
+                        className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800/70 hover:text-amber-300 transition-colors"
                       >
-                        🎡 Çark
+                        <Disc className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                        <span>Çark</span>
                       </Link>
+
                       <Link
                         href="/listelerim"
                         onClick={() => setDropdownOpen(false)}
-                        className="block px-4 py-2 text-gray-300 hover:bg-gray-700 hover:text-primary-400 transition"
+                        className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800/70 hover:text-amber-300 transition-colors"
                       >
-                        📋 Listelerim
+                        <BookmarkCheck className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                        <span>Listelerim</span>
                       </Link>
+
                       <Link
                         href="/rozetler"
                         onClick={() => setDropdownOpen(false)}
-                        className="block px-4 py-2 text-gray-300 hover:bg-gray-700 hover:text-primary-400 transition"
+                        className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800/70 hover:text-amber-300 transition-colors"
                       >
-                        🏅 Rozetler
+                        <Award className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                        <span>Rozetler</span>
                       </Link>
-                      
-                      {/* BURASI DÜZELTİLDİ: link -> Link */}
+
                       <Link
-                       href="/mesajlar"
-                       onClick={() => setDropdownOpen(false)}
-                       className="block px-4 py-2 text-gray-300 hover:bg-gray-700 hover:text-primary-400 transition"
+                        href="/mesajlar"
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800/70 hover:text-amber-300 transition-colors"
                       >
-                        💭 Mesajlar
+                        <MessageSquare className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                        <span>Mesajlar</span>
                       </Link>
 
                       <Link
                         href="/bildirimler"
                         onClick={() => setDropdownOpen(false)}
-                        className="block px-4 py-2 text-gray-300 hover:bg-gray-700 hover:text-primary-400 transition"
+                        className="flex items-center gap-2.5 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800/70 hover:text-amber-300 transition-colors"
                       >
-                        🔔 Bildirimler
+                        <Bell className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                        <span>Bildirimler</span>
                       </Link>
+
+                      <div className="my-1.5 border-t border-slate-800" />
+
                       <button
+                        type="button"
                         onClick={handleLogout}
-                        className="block w-full text-left px-4 py-2 text-gray-300 hover:bg-red-900/50 hover:text-red-400 transition"
+                        className="flex items-center gap-2.5 w-full text-left px-4 py-2 text-sm text-slate-300 hover:bg-red-950/50 hover:text-red-400 transition-colors"
                       >
-                        🚪 Çıkış Yap
+                        <LogOut className="w-4 h-4 text-red-400/80" strokeWidth={1.8} />
+                        <span>Çıkış Yap</span>
                       </button>
                     </motion.div>
                   )}
                 </AnimatePresence>
               </div>
             ) : (
-              <Link href="/giris" className="btn-primary py-2 px-4 text-sm ml-2">
+              <Link
+                href="/giris"
+                className="inline-flex items-center justify-center rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-semibold text-sm px-4 py-2 shadow-lg shadow-amber-500/15 hover:from-amber-300 hover:to-amber-400 transition-all duration-200"
+              >
                 Giriş Yap
               </Link>
             )}
@@ -256,17 +301,16 @@ export default function Navbar() {
 
           {/* Mobil menü butonu */}
           <button
+            type="button"
             onClick={() => setIsOpen(!isOpen)}
-            className="md:hidden p-2 rounded-md text-gray-300 hover:bg-gray-800"
+            className="lg:hidden p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-slate-200 hover:border-amber-400/40 hover:text-amber-300 transition-colors"
             aria-label="Menü"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {isOpen ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              )}
-            </svg>
+            {isOpen ? (
+              <X className="w-5 h-5" strokeWidth={2} />
+            ) : (
+              <Menu className="w-5 h-5" strokeWidth={2} />
+            )}
           </button>
         </div>
       </div>
@@ -278,9 +322,9 @@ export default function Navbar() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-gray-900 border-t border-gray-800"
+            className="lg:hidden bg-[#070b14]/98 border-t border-slate-800 backdrop-blur-xl overflow-hidden"
           >
-            <div className="px-4 py-3 space-y-2">
+            <div className="px-4 py-4 space-y-1.5">
               {navLinks.map((link) => {
                 const active = isActive(link.href)
                 return (
@@ -288,90 +332,115 @@ export default function Navbar() {
                     key={link.href}
                     href={link.href}
                     onClick={() => setIsOpen(false)}
-                    className={`block px-3 py-2 rounded-md transition-colors ${
+                    className={`block px-3.5 py-2.5 rounded-xl text-sm transition-colors ${
                       active
-                        ? 'bg-gray-800 text-primary-400 font-semibold'
-                        : 'text-gray-300 hover:bg-gray-800 hover:text-primary-400'
+                        ? 'bg-amber-400/15 text-amber-300 font-semibold border border-amber-400/30'
+                        : 'text-slate-300 hover:bg-slate-900 hover:text-amber-300'
                     }`}
                   >
                     {link.label}
                   </Link>
                 )
               })}
+
+              <Link
+                href="/mekan-ekle"
+                onClick={() => setIsOpen(false)}
+                className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-sm font-semibold text-amber-300 bg-amber-400/10 border border-amber-400/25 hover:bg-amber-400/15 transition-colors"
+              >
+                <Plus className="w-4 h-4" strokeWidth={2.2} />
+                <span>Mekan Ekle</span>
+              </Link>
+
               {user ? (
-                <div className="pt-2 border-t border-gray-800 space-y-1">
+                <div className="pt-3 mt-2 border-t border-slate-800 space-y-1">
                   <Link
                     href={`/profil/${user.id}`}
                     onClick={() => setIsOpen(false)}
-                    className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-200 hover:bg-slate-900 rounded-xl"
                   >
-                    👤 {user.user_metadata?.username || user.email}
+                    <User className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                    <span>{user.user_metadata?.username || user.email}</span>
                   </Link>
+
                   {isAdmin && (
                     <Link
                       href="/admin"
                       onClick={() => setIsOpen(false)}
-                      className="block px-3 py-2 text-amber-400 font-medium hover:bg-gray-800 rounded-md"
+                      className="flex items-center gap-2.5 px-3.5 py-2 text-sm text-amber-400 font-medium hover:bg-slate-900 rounded-xl"
                     >
-                      🛠️ Admin Panel
+                      <Shield className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                      <span>Admin Panel</span>
                     </Link>
                   )}
+
                   <Link
                     href="/cark"
                     onClick={() => setIsOpen(false)}
-                    className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-300 hover:bg-slate-900 rounded-xl"
                   >
-                    🎡 Çark
+                    <Disc className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                    <span>Çark</span>
                   </Link>
+
                   <Link
                     href="/listelerim"
                     onClick={() => setIsOpen(false)}
-                    className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-300 hover:bg-slate-900 rounded-xl"
                   >
-                    📋 Listelerim
+                    <BookmarkCheck className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                    <span>Listelerim</span>
                   </Link>
+
                   <Link
                     href="/rozetler"
                     onClick={() => setIsOpen(false)}
-                    className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-300 hover:bg-slate-900 rounded-xl"
                   >
-                    🏅 Rozetler
+                    <Award className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                    <span>Rozetler</span>
                   </Link>
-                  
-                  {/* BURASI DÜZELTİLDİ: link -> Link */}
+
                   <Link
                     href="/mesajlar"
                     onClick={() => setIsOpen(false)}
-                    className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-300 hover:bg-slate-900 rounded-xl"
                   >
-                    💭 Mesajlar
+                    <MessageSquare className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                    <span>Mesajlar</span>
                   </Link>
 
                   <Link
                     href="/bildirimler"
                     onClick={() => setIsOpen(false)}
-                    className="block px-3 py-2 text-gray-300 hover:bg-gray-800 rounded-md"
+                    className="flex items-center gap-2.5 px-3.5 py-2 text-sm text-slate-300 hover:bg-slate-900 rounded-xl"
                   >
-                    🔔 Bildirimler
+                    <Bell className="w-4 h-4 text-amber-400" strokeWidth={1.8} />
+                    <span>Bildirimler</span>
                   </Link>
+
                   <button
+                    type="button"
                     onClick={() => {
                       handleLogout()
                       setIsOpen(false)
                     }}
-                    className="block w-full text-left px-3 py-2 text-gray-300 hover:bg-red-900/50 hover:text-red-400 rounded-md"
+                    className="flex items-center gap-2.5 w-full text-left px-3.5 py-2 text-sm text-slate-300 hover:bg-red-950/50 hover:text-red-400 rounded-xl"
                   >
-                    🚪 Çıkış Yap
+                    <LogOut className="w-4 h-4 text-red-400/80" strokeWidth={1.8} />
+                    <span>Çıkış Yap</span>
                   </button>
                 </div>
               ) : (
-                <Link
-                  href="/giris"
-                  onClick={() => setIsOpen(false)}
-                  className="block px-3 py-2 bg-primary-500 text-white rounded-md text-center"
-                >
-                  Giriş Yap
-                </Link>
+                <div className="pt-2">
+                  <Link
+                    href="/giris"
+                    onClick={() => setIsOpen(false)}
+                    className="block w-full px-4 py-2.5 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-semibold rounded-xl text-center text-sm"
+                  >
+                    Giriş Yap
+                  </Link>
+                </div>
               )}
             </div>
           </motion.div>

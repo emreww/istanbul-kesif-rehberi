@@ -71,7 +71,6 @@ function getPlaceImage(place: any, slug?: string): string {
   return CATEGORY_FALLBACK_IMAGES.default
 }
 
-// Ana sayfada sadece gerçek gezi/keşif kategorileri gösterilir
 const EXPLORE_CATEGORY_SLUGS = [
   'tarihi-yer',
   'muze',
@@ -140,10 +139,10 @@ export default async function HomePage() {
                 </div>
 
                 <h1 className="text-5xl sm:text-5xl lg:text-7xl font-serif font-normal text-white leading-[1.22] tracking-tight">
-                   Bugün nereye{' '}
-                    <span className="inline-block pr-3 bg-gradient-to-r from-amber-200 via-amber-400 to-yellow-500 bg-clip-text text-transparent italic">
-                      gidelim?
-                    </span>
+                  Bugün nereye{' '}
+                  <span className="inline-block pr-3 bg-gradient-to-r from-amber-200 via-amber-400 to-yellow-500 bg-clip-text text-transparent italic">
+                    gidelim?
+                  </span>
                 </h1>
 
                 <p className="font-sans text-slate-300 text-lg md:text-xl max-w-xl leading-relaxed mt-5">
@@ -194,7 +193,7 @@ export default async function HomePage() {
             <div className="hidden lg:flex lg:col-span-5 justify-center">
               <div className="relative w-80 h-80 md:w-96 md:h-96">
                 <div className="absolute inset-0 rounded-full border border-dashed border-slate-600/50 animate-[spin_30s_linear_infinite] motion-reduce:animate-none" />
-                <div className="absolute inset-6 rounded-full border border-amber-400/30 shadow-[0_0_50px_rgba(251,191,36,0.08)]" />
+                <div className="absolute inset-6 rounded-full border border-dashed border-amber-100/30 shadow-[0_0_50px_rgba(251,191,36,0.08)] animate-[spin_20s_linear_infinite_reverse] motion-reduce:animate-none" />
                 <div className="absolute inset-12 rounded-full bg-gradient-to-b from-slate-900/90 to-[#070b14]/95 border border-slate-800 backdrop-blur-md" />
 
                 <Link
@@ -238,7 +237,7 @@ export default async function HomePage() {
 
             <div className="rounded-2xl bg-slate-900/50 border border-slate-800/80 backdrop-blur-sm p-6">
               <div className="font-serif text-3xl md:text-4xl text-sky-400">
-                {totalReviewsCount >=50 ? totalReviewsCount : 50}
+                {totalReviewsCount >= 50 ? totalReviewsCount : 50}
               </div>
               <div className="text-xs text-slate-400 mt-2 uppercase tracking-wider font-medium">
                 Kullanıcı Yorumu
@@ -300,59 +299,56 @@ export default async function HomePage() {
 
         {/* FOTOĞRAFLI GEZİLECEK YERLER VİTRİNİ */}
         <section className="max-w-7xl mx-auto px-4 pb-12">
-          <AnimatedSection variant="right">
-            <div className="flex items-end justify-between gap-4 mb-8">
-              <div>
-                <div className="inline-flex items-center gap-2 text-amber-400 text-xs font-semibold uppercase tracking-wider mb-1">
-                  <Star className="w-3.5 h-3.5 fill-amber-400" />
-                  <span>Şehrin Ruhu</span>
-                </div>
-                <h2 className="font-serif text-3xl md:text-4xl text-white">
-                  Öne Çıkan Gezilecek Yerler
-                </h2>
+          <div className="flex items-end justify-between gap-4 mb-8">
+            <div>
+              <div className="inline-flex items-center gap-2 text-amber-400 text-xs font-semibold uppercase tracking-wider mb-1">
+                <Star className="w-3.5 h-3.5 fill-amber-400" />
+                <span>Şehrin Ruhu</span>
               </div>
-              <Link
-                href="/kesfet?siralama=en-yuksek-puan"
-                className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wider font-semibold text-amber-400 hover:text-amber-300 transition-colors"
-              >
-                <span>Tümünü Keşfet</span>
-                <ArrowRight className="w-3.5 h-3.5" strokeWidth={2} />
-              </Link>
+              <h2 className="font-serif text-3xl md:text-4xl text-white">
+                Öne Çıkan Gezilecek Yerler
+              </h2>
             </div>
-          </AnimatedSection>
+            <Link
+              href="/kesfet?siralama=en-yuksek-puan"
+              className="inline-flex items-center gap-1.5 text-xs uppercase tracking-wider font-semibold text-amber-400 hover:text-amber-300 transition-colors"
+            >
+              <span>Tümünü Keşfet</span>
+              <ArrowRight className="w-3.5 h-3.5" strokeWidth={2} />
+            </Link>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {popularPlaces?.map((place: any, index: number) => {
+            {popularPlaces?.map((place: any) => {
               const cat = Array.isArray(place.categories) ? place.categories[0] : place.categories
               const CatIcon = getCategoryIcon(cat?.slug)
               const coverImage = getPlaceImage(place, cat?.slug)
 
               return (
-                <AnimatedSection key={place.id} delay={index * 0.07} variant="up">
+                <div key={place.id} className="opacity-100">
                   <Link
                     href={`/mekan/${place.id}`}
-                    className="group block overflow-hidden rounded-2xl bg-slate-900/60 border border-slate-800/90 hover:border-amber-400/50 transition-all duration-300 hover:-translate-y-1 shadow-xl shadow-black/30"
+                    className="group block overflow-hidden rounded-2xl bg-[#0c1220] border border-slate-800 hover:border-amber-400/60 transition-all duration-300 shadow-xl shadow-black/40"
                   >
                     {/* FOTOĞRAF ALANI */}
-                    <div className="relative aspect-[16/10] w-full overflow-hidden bg-slate-800">
+                    <div className="relative aspect-[16/10] w-full overflow-hidden bg-[#0c1220]">
                       <img
                         src={coverImage}
                         alt={place.name}
                         loading="lazy"
                         className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#070b14] via-[#070b14]/20 to-transparent" />
-
+                      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#0c1220] via-transparent to-transparent" />
                       {/* Sol Üst: Kategori Rozeti */}
                       {cat && (
-                        <span className="absolute top-3.5 left-3.5 inline-flex items-center gap-1.5 rounded-full bg-slate-950/75 backdrop-blur-md border border-white/10 px-3 py-1 text-xs font-medium text-slate-200">
+                        <span className="absolute top-3.5 left-3.5 inline-flex items-center gap-1.5 rounded-full bg-slate-950/90 border border-white/10 px-3 py-1 text-xs font-medium text-slate-200">
                           <CatIcon className="w-3.5 h-3.5 text-amber-400" strokeWidth={1.8} />
                           <span>{cat.name}</span>
                         </span>
                       )}
 
                       {/* Sağ Üst: Altın Puan Rozeti */}
-                      <div className="absolute top-3.5 right-3.5 inline-flex items-center gap-1 rounded-full bg-slate-950/80 backdrop-blur-md border border-amber-400/30 px-2.5 py-1">
+                      <div className="absolute top-3.5 right-3.5 inline-flex items-center gap-1 rounded-full bg-slate-950/90 border border-amber-400/30 px-2.5 py-1">
                         <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                         <span className="text-xs font-semibold text-amber-300">
                           {Number(place.average_rating).toFixed(1)}
@@ -361,8 +357,8 @@ export default async function HomePage() {
                     </div>
 
                     {/* KART İÇERİĞİ */}
-                    <div className="p-5">
-                      <h3 className="font-serif text-xl text-white group-hover:text-amber-300 transition-colors line-clamp-1">
+                    <div className="p-5 bg-[#0c1220]">
+                      <h3 className="font-serif text-xl text-white group-hover:text-amber-300 transition-colors line-clamp-1 no-underline border-0">
                         {place.name}
                       </h3>
 
@@ -383,7 +379,7 @@ export default async function HomePage() {
                       </div>
                     </div>
                   </Link>
-                </AnimatedSection>
+                </div>
               )
             })}
           </div>
