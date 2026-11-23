@@ -351,68 +351,52 @@
   will-change: transform;
 }
 
-/* Özel Tasarım Kümeleme (Marker Cluster) Stilleri */
+/* Birleştirilmiş Marker Cluster Stilleri (Terracotta & Editoryal Koyu) */
 .custom-cluster-icon {
   background: transparent;
   border: none;
 }
 
 .cluster-inner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  color: #ffffff;
-  font-weight: 800;
-  font-size: 13px;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.45), 0 0 10px rgba(249, 115, 22, 0.3);
-  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-gray-50);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: -0.01em;
+  border: 2px solid rgba(250, 250, 249, 0.85);
+  box-shadow: 0 4px 12px rgba(14, 12, 10, 0.45);
+  transition: transform 250ms var(--ease-soft);
   will-change: transform;
 }
 
-.cluster-inner:hover {
-  transform: scale(1.1);
+@media (hover: hover) {
+  .cluster-inner:hover {
+    transform: translateY(-2px) scale(1.05);
+  }
 }
 
 .cluster-small {
-  background: linear-gradient(135deg, rgba(251, 146, 60, 0.9), rgba(249, 115, 22, 0.95));
-  border: 2px solid #ffffff;
+  background: linear-gradient(135deg, var(--color-primary-400), var(--color-primary-500));
 }
 
 .cluster-medium {
-  background: linear-gradient(135deg, rgba(249, 115, 22, 0.95), rgba(234, 88, 12, 1));
-  border: 2.5px solid #ffffff;
+  background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-600));
+  font-size: 13px;
+  border-width: 2.5px;
 }
 
 .cluster-large {
-  background: linear-gradient(135deg, rgba(234, 88, 12, 1), rgba(194, 65, 12, 1));
-  border: 3px solid #ffedd5;
-  box-shadow: 0 6px 20px rgba(234, 88, 12, 0.6);
+  background: linear-gradient(135deg, var(--color-primary-600), var(--color-primary-700));
+  color: #ffffff;
+  font-size: 13px;
+  border: 2.5px solid var(--color-primary-200);
+  box-shadow: 0 6px 16px rgba(14, 12, 10, 0.55), var(--shadow-glow);
 }
-.custom-cluster-icon {
-  background: transparent;
-  border: none;
-}
-
-.cluster-inner {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: bold;
-  font-size: 12px;
-  box-shadow: 0 4px 14px rgba(249, 115, 22, 0.4);
-  border: 2px solid #ffffff;
-}
-
-.cluster-small { background: linear-gradient(135deg, #fb923c, #ea580c); }
-.cluster-medium { background: linear-gradient(135deg, #ea580c, #c2410c); }
-.cluster-large { background: linear-gradient(135deg, #c2410c, #9a3412); }
 
 @keyframes ping {
   75%, 100% {

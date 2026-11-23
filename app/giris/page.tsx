@@ -4,22 +4,42 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import {
+  Compass,
+  KeyRound,
+  CheckCircle2,
+  ArrowLeft,
+  ArrowRight,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  Route,
+  Sparkles,
+  AlertCircle,
+  Bookmark,
+  Award,
+} from 'lucide-react'
 import AnimatedBackground from '@/components/ui/AnimatedBackground'
+
+const HERO_ISTANBUL_PHOTO =
+  'https://images.unsplash.com/photo-1524231757912-21f4fe3a7200?auto=format&fit=crop&w=1600&q=85'
 
 export default function GirisPage() {
   const [email, setEmail] = useState('')
   const [sifre, setSifre] = useState('')
+  const [sifreGoster, setSifreGoster] = useState(false)
   const [hata, setHata] = useState('')
   const [bilgi, setBilgi] = useState('')
   const [yukleniyor, setYukleniyor] = useState(false)
   const [sifreSifirlamaModu, setSifreSifirlamaModu] = useState(false)
   const [sifirlamaYukleniyor, setSifirlamaYukleniyor] = useState(false)
   const [sifirlamaMailGonderildi, setSifirlamaMailGonderildi] = useState(false)
+  const [mekanCount, setMekanCount] = useState<number | null>(null)
 
   const router = useRouter()
-  const supabase = createClient()
+  const [supabase] = useState(() => createClient())
 
-  // Ban sebebini veya kayıt başarısını URL'den al
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const reason = params.get('reason')
@@ -30,7 +50,24 @@ export default function GirisPage() {
     } else if (kayit === 'basarili') {
       setBilgi('Kayıt başarılı! Lütfen hesabınızı doğrulamak için e-postanızı kontrol edin.')
     }
-  }, [])
+
+    let aktif = true
+    const fetchMekanSayisi = async () => {
+      const { count, error } = await supabase
+        .from('places')
+        .select('id', { count: 'exact', head: true })
+
+      if (!aktif) return
+      if (!error && count !== null) {
+        setMekanCount(count)
+      }
+    }
+
+    fetchMekanSayisi()
+    return () => {
+      aktif = false
+    }
+  }, [supabase])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -73,7 +110,6 @@ export default function GirisPage() {
     router.refresh()
   }
 
-  // Supabase Şifre Sıfırlama İsteği
   const handleSifreSifirla = async (e: React.FormEvent) => {
     e.preventDefault()
     setHata('')
@@ -94,157 +130,286 @@ export default function GirisPage() {
   }
 
   return (
-    <div className="relative min-h-screen">
+    <div className="relative min-h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] w-full bg-[#070b14] text-slate-100 overflow-x-hidden lg:overflow-hidden">
+      {/* Gece mavisi & altın atmosferik ışık katmanları */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 -left-40 h-[560px] w-[560px] rounded-full bg-blue-600/15 blur-[140px]" />
+        <div className="absolute bottom-0 right-0 h-[480px] w-[480px] rounded-full bg-amber-500/10 blur-[140px]" />
+      </div>
+
       <AnimatedBackground />
-      <div className="relative z-10 flex items-center justify-center min-h-screen px-4">
-        <div className="w-full max-w-md bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-8">
-          
-          {sifreSifirlamaModu ? (
-            /* ŞİFRE SIFIRLAMA MODU */
-            <div>
-              <div className="text-center mb-6">
-                <div className="text-4xl mb-3">🔑</div>
-                <h1 className="text-2xl font-bold text-gray-100">Şifreni mi Unuttun?</h1>
-                <p className="text-gray-400 text-sm mt-2">
-                  E-posta adresini gir, sana şifre sıfırlama bağlantısı gönderelim.
+
+      <section className="relative z-10 w-full h-full grid grid-cols-1 lg:grid-cols-12">
+        {/* SOL YARI: TAM YÜKSEKLİK İSTANBUL FOTOĞRAFI & TEŞVİK */}
+        <div className="relative lg:col-span-7 min-h-[420px] lg:min-h-full flex flex-col justify-between overflow-hidden bg-[#0a101d] border-b lg:border-b-0 lg:border-r border-slate-800/80">
+          <img
+            src={HERO_ISTANBUL_PHOTO}
+            alt="İstanbul manzarası ve Boğaz"
+            fetchPriority="high"
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#070b14] via-[#070b14]/70 to-[#070b14]/35" />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#070b14]/80 via-[#070b14]/25 to-[#070b14]/85" />
+
+          <div className="relative z-10 p-6 sm:p-10 lg:p-10 flex items-center justify-between gap-4">
+            <div className="inline-flex items-center gap-2 rounded-full bg-[#070b14]/85 border border-amber-400/35 px-4 py-1.5 text-xs font-medium text-amber-300 backdrop-blur-md">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" strokeWidth={2} />
+              <span>
+                {mekanCount !== null ? `${mekanCount.toLocaleString('tr-TR')} Mekan` : 'İstanbul Mekanları'} · 39 İlçe
+              </span>
+            </div>
+            <span className="hidden sm:inline-block text-xs font-medium text-slate-300/90 bg-[#070b14]/70 border border-slate-800/80 rounded-full px-3.5 py-1.5 backdrop-blur-md">
+              İstanbul Keşif Rehberi
+            </span>
+          </div>
+
+          <div className="relative z-10 p-6 sm:p-10 lg:p-10 space-y-5">
+            <div className="max-w-2xl">
+              <h2 className="font-serif text-4xl sm:text-5xl xl:text-6xl text-white leading-[1.12] tracking-tight">
+                İstanbul'u haritada değil,{' '}
+                <span className="bg-gradient-to-r from-amber-200 via-amber-400 to-yellow-500 bg-clip-text text-transparent italic">
+                  kendi rotanda
+                </span>{' '}
+                yaşa.
+              </h2>
+              <p className="font-sans text-slate-200/90 text-sm sm:text-base leading-relaxed mt-3 max-w-xl">
+                Gizli seyir noktalarından tarihi mekanlara, özel kahvecilerden yürüyüş rotalarına kadar aradığın her durak hesabında seni bekliyor.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
+              <div className="rounded-2xl bg-[#070b14]/85 backdrop-blur-md border border-slate-800/90 p-4">
+                <div className="w-8 h-8 rounded-lg bg-amber-400/10 border border-amber-400/25 flex items-center justify-center text-amber-400 mb-2.5">
+                  <Bookmark className="w-4 h-4" strokeWidth={1.9} />
+                </div>
+                <h3 className="text-sm font-semibold text-white">Kişisel Listeler</h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Favori mekanlarını kaydet ve dilediğin an ulaş.
                 </p>
               </div>
 
-              {hata && (
-                <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 rounded-xl text-sm mb-6">
-                  {hata}
+              <div className="rounded-2xl bg-[#070b14]/85 backdrop-blur-md border border-slate-800/90 p-4">
+                <div className="w-8 h-8 rounded-lg bg-amber-400/10 border border-amber-400/25 flex items-center justify-center text-amber-400 mb-2.5">
+                  <Route className="w-4 h-4" strokeWidth={1.9} />
                 </div>
-              )}
+                <h3 className="text-sm font-semibold text-white">Rota Planlama</h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Gününe uygun durakları sıralayıp rotanı çiz.
+                </p>
+              </div>
 
-              {sifirlamaMailGonderildi ? (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 p-4 rounded-xl text-sm text-center space-y-3">
-                  <p className="font-semibold">✓ Sıfırlama Bağlantısı Gönderildi!</p>
-                  <p className="text-xs text-emerald-200/80">
-                    <span className="font-bold">{email}</span> adresine bir bağlantı yolladık. Lütfen gelen kutunuzu ve spam klasörünüzü kontrol edin.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setSifreSifirlamaModu(false)
-                      setSifirlamaMailGonderildi(false)
-                    }}
-                    className="mt-2 text-xs text-gray-300 hover:text-white underline block mx-auto"
-                  >
-                    Giriş Ekranına Dön
-                  </button>
+              <div className="rounded-2xl bg-[#070b14]/85 backdrop-blur-md border border-slate-800/90 p-4">
+                <div className="w-8 h-8 rounded-lg bg-amber-400/10 border border-amber-400/25 flex items-center justify-center text-amber-400 mb-2.5">
+                  <Award className="w-4 h-4" strokeWidth={1.9} />
                 </div>
-              ) : (
-                <form onSubmit={handleSifreSifirla} className="space-y-5">
+                <h3 className="text-sm font-semibold text-white">Rozet & Yorum</h3>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  Deneyimlerini paylaş, puan ver ve rozet kazan.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* SAĞ YARI: TAM YÜKSEKLİK GİRİŞ / ŞİFRE SIFIRLAMA ALANI */}
+        <div className="lg:col-span-5 bg-[#070b14]/95 backdrop-blur-xl flex flex-col justify-between p-6 sm:p-10 lg:p-10">
+          <div className="text-xs text-slate-500 flex items-center justify-between border-b border-slate-800/60 pb-3">
+            <span className="font-medium text-slate-400">kesifistanbul.com.tr</span>
+            <span className="text-amber-400 font-medium">Üye Girişi</span>
+          </div>
+
+          <div className="my-auto py-4 w-full max-w-md mx-auto">
+            {sifreSifirlamaModu ? (
+              /* ŞİFRE SIFIRLAMA MODU */
+              <div>
+                <div className="mb-6">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-400/10 border border-amber-400/30 flex items-center justify-center text-amber-400 mb-4">
+                    <KeyRound className="w-5 h-5" strokeWidth={1.8} />
+                  </div>
+                  <h1 className="font-serif text-3xl sm:text-4xl text-white">Şifreni mi Unuttun?</h1>
+                  <p className="text-slate-400 text-sm mt-1.5 leading-relaxed">
+                    Kayıtlı e-posta adresini gir; sana şifre sıfırlama bağlantısı gönderelim.
+                  </p>
+                </div>
+
+                {hata && (
+                  <div className="flex items-start gap-2.5 bg-red-950/60 border border-red-500/40 text-red-200 px-4 py-3 rounded-xl text-xs leading-relaxed mb-5">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" strokeWidth={2} />
+                    <span>{hata}</span>
+                  </div>
+                )}
+
+                {sifirlamaMailGonderildi ? (
+                  <div className="bg-emerald-950/40 border border-emerald-500/30 text-emerald-200 p-5 rounded-2xl text-sm space-y-3">
+                    <p className="font-semibold flex items-center gap-2 text-emerald-300">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" strokeWidth={2} />
+                      <span>Sıfırlama Bağlantısı Gönderildi</span>
+                    </p>
+                    <p className="text-xs text-emerald-200/80 leading-relaxed">
+                      <span className="font-semibold text-white">{email}</span> adresine bir bağlantı yolladık. Gelen kutunu ve spam klasörünü kontrol edebilirsin.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSifreSifirlamaModu(false)
+                        setSifirlamaMailGonderildi(false)
+                      }}
+                      className="pt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2} />
+                      <span>Giriş Ekranına Dön</span>
+                    </button>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSifreSifirla} className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
+                        E-posta Adresi
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" strokeWidth={1.8} />
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="w-full rounded-xl bg-slate-900/90 border border-slate-800 pl-10 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/15 transition-all"
+                          placeholder="ornek@mail.com"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={sifirlamaYukleniyor}
+                      className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 py-3.5 px-4 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/15 hover:from-amber-300 hover:to-amber-400 disabled:opacity-50 transition-all duration-200 cursor-pointer"
+                    >
+                      <span>{sifirlamaYukleniyor ? 'Gönderiliyor...' : 'Sıfırlama Bağlantısı Gönder'}</span>
+                      {!sifirlamaYukleniyor && <ArrowRight className="w-4 h-4" strokeWidth={2} />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSifreSifirlamaModu(false)}
+                      className="w-full inline-flex items-center justify-center gap-1.5 text-xs font-medium text-slate-400 hover:text-amber-300 transition-colors pt-1 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2} />
+                      <span>Giriş Ekranına Dön</span>
+                    </button>
+                  </form>
+                )}
+              </div>
+            ) : (
+              /* STANDART GİRİŞ MODU */
+              <div>
+                <div className="mb-6">
+                  <div className="w-11 h-11 rounded-2xl bg-amber-400/10 border border-amber-400/30 flex items-center justify-center text-amber-400 mb-4">
+                    <Compass className="w-5 h-5" strokeWidth={1.8} />
+                  </div>
+                  <h1 className="font-serif text-3xl sm:text-4xl text-white">Tekrar Hoş Geldin</h1>
+                  <p className="text-slate-400 text-sm mt-1.5">
+                    Hesabına giriş yap ve İstanbul'u keşfetmeye devam et.
+                  </p>
+                </div>
+
+                {bilgi && (
+                  <div className="flex items-start gap-2.5 bg-emerald-950/50 border border-emerald-500/30 text-emerald-200 px-4 py-3 rounded-xl text-xs leading-relaxed mb-5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" strokeWidth={2} />
+                    <span>{bilgi}</span>
+                  </div>
+                )}
+
+                {hata && (
+                  <div className="flex items-start gap-2.5 bg-red-950/60 border border-red-500/40 text-red-200 px-4 py-3 rounded-xl text-xs leading-relaxed mb-5">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" strokeWidth={2} />
+                    <span>{hata}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleSubmit} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      E-posta Adresi
+                    <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
+                      E-posta
                     </label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="input-field"
-                      placeholder="ornek@mail.com"
-                      required
-                    />
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" strokeWidth={1.8} />
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full rounded-xl bg-slate-900/90 border border-slate-800 pl-10 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/15 transition-all"
+                        placeholder="ornek@mail.com"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-xs font-medium uppercase tracking-wider text-slate-300">
+                        Şifre
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setSifreSifirlamaModu(true)}
+                        className="text-xs font-medium text-amber-400 hover:text-amber-300 transition-colors cursor-pointer"
+                      >
+                        Şifremi unuttum?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" strokeWidth={1.8} />
+                      <input
+                        type={sifreGoster ? 'text' : 'password'}
+                        value={sifre}
+                        onChange={(e) => setSifre(e.target.value)}
+                        className="w-full rounded-xl bg-slate-900/90 border border-slate-800 pl-10 pr-11 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/15 transition-all"
+                        placeholder="••••••••"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setSifreGoster((prev) => !prev)}
+                        aria-label={sifreGoster ? 'Şifreyi gizle' : 'Şifreyi göster'}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-amber-300 transition-colors cursor-pointer"
+                      >
+                        {sifreGoster ? (
+                          <EyeOff className="w-4 h-4" strokeWidth={1.8} />
+                        ) : (
+                          <Eye className="w-4 h-4" strokeWidth={1.8} />
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   <button
                     type="submit"
-                    disabled={sifirlamaYukleniyor}
-                    className="btn-primary w-full py-3 disabled:opacity-50"
+                    disabled={yukleniyor}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 py-3.5 px-4 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/20 hover:from-amber-300 hover:to-amber-400 disabled:opacity-60 transition-all duration-200 cursor-pointer"
                   >
-                    {sifirlamaYukleniyor ? 'Gönderiliyor...' : 'Sıfırlama Bağlantısı Gönder'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setSifreSifirlamaModu(false)}
-                    className="w-full text-center text-sm text-gray-400 hover:text-gray-200 transition"
-                  >
-                    ← Giriş Ekranına Dön
+                    <span>{yukleniyor ? 'Giriş yapılıyor...' : 'Giriş Yap'}</span>
+                    {!yukleniyor && <ArrowRight className="w-4 h-4" strokeWidth={2.2} />}
                   </button>
                 </form>
-              )}
-            </div>
-          ) : (
-            /* STANDART GİRİŞ MODU */
-            <>
-              <div className="text-center mb-8">
-                <div className="text-4xl mb-3">🏙️</div>
-                <h1 className="text-2xl font-bold text-gray-100">Tekrar Hoş Geldin</h1>
-                <p className="text-gray-400 text-sm mt-2">İstanbul'u keşfetmeye devam et</p>
+
+                <div className="mt-6 pt-5 border-t border-slate-800/80 text-center text-xs text-slate-400">
+                  Henüz hesabın yok mu?{' '}
+                  <Link
+                    href="/kayit"
+                    className="font-semibold text-amber-400 hover:text-amber-300 transition-colors"
+                  >
+                    Ücretsiz kayıt ol
+                  </Link>
+                </div>
               </div>
+            )}
+          </div>
 
-              {bilgi && (
-                <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 px-4 py-3 rounded-xl text-sm mb-6">
-                  {bilgi}
-                </div>
-              )}
-
-              {hata && (
-                <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-4 py-3 rounded-xl text-sm mb-6">
-                  {hata}
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-5">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-2">
-                    E-posta
-                  </label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="input-field"
-                    placeholder="ornek@mail.com"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-300">
-                      Şifre
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setSifreSifirlamaModu(true)}
-                      className="text-xs text-primary-400 hover:underline"
-                    >
-                      Şifremi unuttum?
-                    </button>
-                  </div>
-                  <input
-                    type="password"
-                    value={sifre}
-                    onChange={(e) => setSifre(e.target.value)}
-                    className="input-field"
-                    placeholder="••••••••"
-                    required
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={yukleniyor}
-                  className="btn-primary w-full py-3"
-                >
-                  {yukleniyor ? 'Giriş yapılıyor...' : 'Giriş Yap'}
-                </button>
-              </form>
-
-              <div className="mt-6 text-center text-sm text-gray-400">
-                Hesabın yok mu?{' '}
-                <Link href="/kayit" className="text-primary-400 hover:underline">
-                  Kayıt ol
-                </Link>
-              </div>
-            </>
-          )}
-
+          <div className="text-xs text-slate-500 border-t border-slate-800/60 pt-3">
+            Giriş yaparak kullanım ve topluluk kurallarını kabul etmiş olursun.
+          </div>
         </div>
-      </div>
+      </section>
     </div>
   )
 }

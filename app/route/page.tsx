@@ -4,6 +4,25 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createClient } from '@/lib/supabase/client'
+import {
+  Compass,
+  Car,
+  Footprints,
+  TrainFront,
+  MapPin,
+  Zap,
+  Search,
+  X,
+  ChevronUp,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Star,
+  Navigation,
+  FolderOpen,
+  ArrowRight,
+  Loader2,
+} from 'lucide-react'
 
 interface Place {
   id: string
@@ -14,7 +33,7 @@ interface Place {
   average_rating: number
   category_id?: number | null
   category_name?: string
-  category_icon?: string
+  category_icon?: string | null
   distanceFromUser?: number
   district?: string
 }
@@ -44,6 +63,9 @@ const ISTANBUL_DISTRICTS = [
   'Silivri', 'Sultanbeyli', 'Sultangazi', 'Şile', 'Şişli', 'Tuzla',
   'Ümraniye', 'Üsküdar', 'Zeytinburnu',
 ]
+
+const inputClass =
+  'w-full rounded-xl bg-slate-900/90 border border-slate-800 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/15 transition-all'
 
 function extractDistrict(address?: string): string {
   if (!address) return 'Diğer'
@@ -219,7 +241,7 @@ export default function RoutePlannerPage() {
     [categories, selectedCategoryId]
   )
 
-  // Seçili Kategoriye Göre Her İlçeden En Yüksek Yıldızlı Mekanları Çek (Limit: 10000)
+  // Seçili Kategoriye Göre Her İlçeden En Yüksek Yıldızlı Mekanları Çek
   useEffect(() => {
     let isCancelled = false
 
@@ -240,7 +262,7 @@ export default function RoutePlannerPage() {
           .not('latitude', 'is', null)
           .not('longitude', 'is', null)
           .order('average_rating', { ascending: false })
-          .limit(100000)
+          .limit(5000)
 
         if (error) {
           console.error('Kategori mekanları çekilemedi:', error.message)
@@ -259,12 +281,10 @@ export default function RoutePlannerPage() {
             average_rating: Number(item.average_rating ?? 0),
             category_id: Number(item.category_id),
             category_name: selectedCategoryObj?.name,
-            category_icon: selectedCategoryObj?.icon || '📍',
+            category_icon: selectedCategoryObj?.icon ?? null,
             district: extractDistrict(item.address),
           }))
 
-        // Her ilçedeki mekanları kendi içinde puana göre sıralayıp
-        // 1. sıra (ilçenin en yüksek yıldızlısı), 2. sıra, 3. sıra... şeklinde katmanlar halinde diz
         const byDistrict = new Map<string, Place[]>()
         for (const place of mapped) {
           const dist = place.district || 'Diğer'
@@ -468,7 +488,6 @@ export default function RoutePlannerPage() {
 
     marker.bindPopup(`
       <div style="font-family: sans-serif; color: #0f172a; padding: 4px; text-align: center;">
-        <span style="font-size: 16px;">📍</span>
         <h4 style="margin:2px 0 0 0; font-size:13px; font-weight:800; color:#2563eb;">ŞU ANKİ KONUMUNUZ</h4>
       </div>
     `)
@@ -537,43 +556,43 @@ export default function RoutePlannerPage() {
           className: 'custom-unselected-pin',
           html: `
             <div style="
-              background: #1e293b;
-              border: 2px solid #f97316;
-              color: #f97316;
-              width: 24px;
-              height: 24px;
-              border-radius: 50%;
+              width: 28px;
+              height: 28px;
+              border-radius: 9999px;
+              background: #09090b;
+              border: 2.5px solid #ef4444;
+              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55), 0 0 8px rgba(239, 68, 68, 0.35);
               display: flex;
               align-items: center;
               justify-content: center;
-              font-size: 11px;
-              box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+              font-size: 13px;
+              line-height: 1;
               cursor: pointer;
             ">📍</div>
           `,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12],
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
         })
 
         const marker = L.marker([place.latitude, place.longitude], { icon: smallIcon })
 
         const distText =
           typeof place.distanceFromUser === 'number'
-            ? `<span style="color:#f97316; font-weight:600;"> • ${place.distanceFromUser.toFixed(1)} km</span>`
+            ? `<span style="color:#d97706; font-weight:600;"> • ${place.distanceFromUser.toFixed(1)} km</span>`
             : ''
 
         marker.bindPopup(`
-          <div style="font-family: sans-serif; color: #0f172a; padding: 4px; min-width: 170px;">
+          <div style="font-family: sans-serif; color: #0f172a; padding: 4px; min-width: 175px;">
             <h4 style="margin:0 0 4px 0; font-size:14px; font-weight:700;">${place.name}</h4>
-            <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${place.address || ''}${distText} • ⭐ ${Number(place.average_rating).toFixed(1)}</p>
+            <p style="margin:0 0 8px 0; font-size:12px; color:#64748b;">${place.address || ''}${distText} • ★ ${Number(place.average_rating).toFixed(1)}</p>
             <button data-place-id="${place.id}" class="js-add-stop-btn" style="
-              background: #f97316;
-              color: white;
+              background: #f59e0b;
+              color: #090d16;
               border: none;
               padding: 6px 10px;
-              border-radius: 6px;
+              border-radius: 8px;
               font-size: 11px;
-              font-weight: 600;
+              font-weight: 700;
               cursor: pointer;
               width: 100%;
             ">+ Rotaya Ekle</button>
@@ -618,8 +637,8 @@ export default function RoutePlannerPage() {
         html: `
           <div style="
             position: relative;
-            background: linear-gradient(135deg, #fb923c, #ea580c);
-            color: white;
+            background: linear-gradient(135deg, #fbbf24, #d97706);
+            color: #090d16;
             width: 32px;
             height: 32px;
             border-radius: 50% 50% 50% 0;
@@ -627,7 +646,7 @@ export default function RoutePlannerPage() {
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 12px rgba(249, 115, 22, 0.5);
+            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.45);
             border: 2px solid #ffffff;
             cursor: pointer;
           ">
@@ -646,7 +665,7 @@ export default function RoutePlannerPage() {
 
       marker.bindPopup(`
         <div style="font-family: sans-serif; color: #0f172a; padding: 4px;">
-          <div style="font-size: 10px; font-weight: 800; color: #f97316; text-transform: uppercase;">DURAK #${idx + 1}</div>
+          <div style="font-size: 10px; font-weight: 800; color: #d97706; text-transform: uppercase;">DURAK #${idx + 1}</div>
           <h4 style="margin:2px 0 4px 0; font-size:14px; font-weight:700;">${stop.place.name}</h4>
           <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${stop.place.address || ''}</p>
         </div>
@@ -659,9 +678,9 @@ export default function RoutePlannerPage() {
 
     const applyPolyline = (path: [number, number][], distanceKm: number, durationMin: number) => {
       const polyline = L.polyline(path, {
-        color: '#f97316',
+        color: '#fbbf24',
         weight: travelMode === 'driving' ? 6 : 5,
-        opacity: 0.9,
+        opacity: 0.92,
         dashArray: travelMode === 'walking' ? '8, 8' : travelMode === 'transit' ? '12, 6' : undefined,
         lineCap: 'round',
         lineJoin: 'round',
@@ -779,10 +798,10 @@ export default function RoutePlannerPage() {
   }, [selectedStops, travelMode])
 
   return (
-    <div className="relative w-full h-[calc(100dvh-64px)] overflow-hidden bg-gray-950 flex flex-col md:flex-row">
+    <div className="relative w-full h-[calc(100dvh-64px)] overflow-hidden bg-[#070b14] text-slate-100 flex flex-col md:flex-row">
       {/* SOL / ALT PANEL */}
       <div
-        className={`fixed md:relative inset-x-0 bottom-0 z-30 transition-all duration-300 flex flex-col bg-gray-900/95 backdrop-blur-xl border-t md:border-t-0 md:border-r border-white/10 shadow-2xl ${
+        className={`fixed md:relative inset-x-0 bottom-0 z-30 transition-all duration-300 flex flex-col bg-[#0c1220]/95 backdrop-blur-xl border-t md:border-t-0 md:border-r border-slate-800/90 shadow-2xl ${
           isSidebarOpen
             ? 'h-[80dvh] md:h-full w-full md:w-[420px] lg:w-[460px]'
             : 'h-14 md:h-full w-full md:w-0 md:overflow-hidden'
@@ -790,21 +809,23 @@ export default function RoutePlannerPage() {
       >
         {/* Panel Header & Mobil Tutamaç */}
         <div
-          className="p-3 md:p-4 border-b border-white/10 bg-gray-900/80 cursor-pointer md:cursor-default"
+          className="p-3 md:p-4 border-b border-slate-800/80 bg-[#070b14]/80 cursor-pointer md:cursor-default"
           onClick={() => {
             if (typeof window !== 'undefined' && window.innerWidth < 768) {
               setIsSidebarOpen((prev) => !prev)
             }
           }}
         >
-          <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-2 md:hidden" />
+          <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mb-2 md:hidden" />
 
           <div className="flex items-center justify-between mb-2 md:mb-3">
             <div className="flex items-center gap-2">
-              <span className="text-lg md:text-xl">🧭</span>
-              <h1 className="text-sm md:text-lg font-bold text-gray-100">Rota Planlayıcı</h1>
+              <div className="w-7 h-7 rounded-lg bg-amber-400/10 border border-amber-400/25 flex items-center justify-center text-amber-400">
+                <Compass className="w-4 h-4" strokeWidth={2} />
+              </div>
+              <h1 className="font-serif text-base md:text-lg text-white">Rota Planlayıcı</h1>
               {selectedStops.length > 0 && (
-                <span className="md:hidden px-2 py-0.5 rounded-full bg-primary-500/20 text-primary-400 text-xs font-bold">
+                <span className="md:hidden px-2 py-0.5 rounded-full bg-amber-400/15 text-amber-300 border border-amber-400/30 text-xs font-semibold">
                   {selectedStops.length} Durak
                 </span>
               )}
@@ -814,19 +835,20 @@ export default function RoutePlannerPage() {
               <Link
                 href="/kesfet"
                 onClick={(e) => e.stopPropagation()}
-                className="text-xs text-primary-400 hover:text-primary-300 transition"
+                className="inline-flex items-center gap-1 text-xs font-medium text-amber-400 hover:text-amber-300 transition"
               >
-                Mekanlar →
+                <span>Mekanlar</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </Link>
               <button
                 type="button"
-                className="md:hidden text-gray-400 p-1"
+                className="md:hidden text-slate-400 hover:text-white p-1"
                 onClick={(e) => {
                   e.stopPropagation()
                   setIsSidebarOpen((prev) => !prev)
                 }}
               >
-                {isSidebarOpen ? '✕' : '▲'}
+                {isSidebarOpen ? <X className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
               </button>
             </div>
           </div>
@@ -836,39 +858,42 @@ export default function RoutePlannerPage() {
             className={`${isSidebarOpen ? 'block' : 'hidden md:block'}`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="grid grid-cols-3 gap-1 bg-gray-800/80 p-1 rounded-xl border border-white/5 mb-3">
+            <div className="grid grid-cols-3 gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 mb-3">
               <button
                 type="button"
                 onClick={() => setTravelMode('driving')}
-                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-semibold transition ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                   travelMode === 'driving'
-                    ? 'bg-primary-500 text-white shadow-md'
-                    : 'text-gray-400 hover:text-gray-200'
+                    ? 'bg-amber-400 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <span>🚗</span> Araç
+                <Car className="w-3.5 h-3.5" strokeWidth={2} />
+                <span>Araç</span>
               </button>
               <button
                 type="button"
                 onClick={() => setTravelMode('walking')}
-                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-semibold transition ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                   travelMode === 'walking'
-                    ? 'bg-primary-500 text-white shadow-md'
-                    : 'text-gray-400 hover:text-gray-200'
+                    ? 'bg-amber-400 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <span>🚶</span> Yürüyüş
+                <Footprints className="w-3.5 h-3.5" strokeWidth={2} />
+                <span>Yürüyüş</span>
               </button>
               <button
                 type="button"
                 onClick={() => setTravelMode('transit')}
-                className={`flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-semibold transition ${
+                className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                   travelMode === 'transit'
-                    ? 'bg-primary-500 text-white shadow-md'
-                    : 'text-gray-400 hover:text-gray-200'
+                    ? 'bg-amber-400 text-slate-950 shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <span>🚇</span> Toplu T.
+                <TrainFront className="w-3.5 h-3.5" strokeWidth={2} />
+                <span>Toplu T.</span>
               </button>
             </div>
 
@@ -877,23 +902,24 @@ export default function RoutePlannerPage() {
                 type="button"
                 onClick={handleGetUserLocation}
                 disabled={isLocating}
-                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition border ${
+                className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition border cursor-pointer ${
                   userLocation
-                    ? 'bg-blue-600/20 text-blue-400 border-blue-500/30'
-                    : 'bg-white/5 text-gray-300 border-white/10'
+                    ? 'bg-sky-500/15 text-sky-300 border-sky-400/30'
+                    : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:border-amber-400/40'
                 }`}
               >
-                <span>📍</span>
-                {isLocating ? 'Konum...' : userLocation ? 'Konum Aktif ✓' : 'Konum Bul'}
+                <Navigation className="w-3.5 h-3.5" strokeWidth={2} />
+                <span>{isLocating ? 'Konum...' : userLocation ? 'Konum Aktif' : 'Konum Bul'}</span>
               </button>
 
               {selectedStops.length >= 2 && (
                 <button
                   type="button"
                   onClick={handleSortByProximity}
-                  className="py-1.5 px-3 rounded-lg text-xs font-semibold bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-600/30 transition flex items-center gap-1.5"
+                  className="py-1.5 px-3 rounded-lg text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-400/30 hover:bg-emerald-500/25 transition flex items-center gap-1.5 cursor-pointer"
                 >
-                  <span>⚡</span> Akıllı Sırala
+                  <Zap className="w-3.5 h-3.5" strokeWidth={2} />
+                  <span>Akıllı Sırala</span>
                 </button>
               )}
             </div>
@@ -904,9 +930,9 @@ export default function RoutePlannerPage() {
         {isSidebarOpen && (
           <>
             {/* Kategori Seçimi ve Kategori İçi Arama */}
-            <div className="p-3 md:p-4 border-b border-white/10 space-y-2.5">
+            <div className="p-3 md:p-4 border-b border-slate-800/80 space-y-2.5">
               <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
                   Kategori Seçin
                 </label>
                 <select
@@ -917,14 +943,13 @@ export default function RoutePlannerPage() {
                     setSearchQuery('')
                   }}
                   disabled={loadingCategories}
-                  className="input-field text-sm w-full"
+                  className={inputClass}
                 >
                   <option value="">
                     {loadingCategories ? 'Kategoriler yükleniyor...' : 'Kategori seçiniz (Harita boş başlar)'}
                   </option>
                   {categories.map((cat) => (
                     <option key={cat.id} value={cat.id}>
-                      {cat.icon ? `${cat.icon} ` : '📍 '}
                       {cat.name}
                     </option>
                   ))}
@@ -933,21 +958,24 @@ export default function RoutePlannerPage() {
 
               {selectedCategoryId && (
                 <div className="relative">
+                  <Search
+                    className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    strokeWidth={1.8}
+                  />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder={`${selectedCategoryObj?.name || 'Kategori'} içinde ara...`}
-                    className="input-field pl-9 pr-8 text-sm w-full"
+                    className={`${inputClass} pl-9 pr-8`}
                   />
-                  <span className="absolute left-3 top-2.5 text-gray-400 text-sm">🔍</span>
                   {searchQuery && (
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
-                      className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-300 text-xs"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 cursor-pointer"
                     >
-                      ✕
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
@@ -956,24 +984,28 @@ export default function RoutePlannerPage() {
 
             <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-4">
               {!selectedCategoryId ? (
-                <div className="text-center py-6 px-4 bg-white/[0.02] border border-white/10 rounded-2xl">
-                  <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center text-xl">
-                    🗂️
+                <div className="text-center py-6 px-4 bg-slate-900/60 border border-slate-800/90 rounded-2xl">
+                  <div className="w-11 h-11 mx-auto mb-2.5 rounded-xl bg-amber-400/10 border border-amber-400/25 flex items-center justify-center text-amber-400">
+                    <FolderOpen className="w-5 h-5" strokeWidth={1.8} />
                   </div>
-                  <h3 className="text-sm font-bold text-gray-200">Önce Bir Kategori Seçin</h3>
-                  <p className="text-xs text-gray-400 mt-1 max-w-[260px] mx-auto">
+                  <h3 className="text-sm font-semibold text-white">Önce Bir Kategori Seçin</h3>
+                  <p className="text-xs text-slate-400 mt-1 max-w-[260px] mx-auto leading-relaxed">
                     Başlangıçta harita boş durur. Yukarıdan kategori seçtiğinizde o kategorideki mekanlar listelenir ve haritada görünür.
                   </p>
                 </div>
               ) : loadingPlaces ? (
-                <div className="text-center py-8 text-xs text-gray-400">
-                  {selectedCategoryObj?.name || 'Kategori'} mekanları yükleniyor...
+                <div className="text-center py-8 text-xs text-slate-400 flex items-center justify-center gap-2">
+                  <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+                  <span>{selectedCategoryObj?.name || 'Kategori'} mekanları yükleniyor...</span>
                 </div>
               ) : (
                 <div>
-                  <div className="flex items-center justify-between text-xs text-gray-400 font-semibold mb-2 px-1">
-                    <span>
-                      {selectedCategoryObj?.icon || '📍'} {selectedCategoryObj?.name} ({categoryPlaces.length})
+                  <div className="flex items-center justify-between text-xs text-slate-400 font-semibold mb-2 px-1">
+                    <span className="inline-flex items-center gap-1.5 text-slate-200">
+                      <MapPin className="w-3.5 h-3.5 text-amber-400" strokeWidth={2} />
+                      <span>
+                        {selectedCategoryObj?.name} ({categoryPlaces.length})
+                      </span>
                     </span>
                     <button
                       type="button"
@@ -981,14 +1013,14 @@ export default function RoutePlannerPage() {
                         setSelectedCategoryId(null)
                         setSearchQuery('')
                       }}
-                      className="text-gray-400 hover:text-gray-200 transition"
+                      className="text-slate-400 hover:text-amber-300 transition cursor-pointer"
                     >
                       Kategoriyi Kapat
                     </button>
                   </div>
 
                   {categoryPlaces.length === 0 ? (
-                    <div className="text-center py-6 px-3 text-xs text-gray-400 bg-white/[0.02] rounded-xl border border-white/5">
+                    <div className="text-center py-6 px-3 text-xs text-slate-400 bg-slate-900/60 rounded-xl border border-slate-800/80">
                       Bu kategoride kayıtlı mekan bulunamadı.
                     </div>
                   ) : (
@@ -1002,19 +1034,21 @@ export default function RoutePlannerPage() {
                               initial={{ opacity: 0, y: 4 }}
                               animate={{ opacity: 1, y: 0 }}
                               exit={{ opacity: 0 }}
-                              className="p-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition flex items-center justify-between gap-2"
+                              className="p-2.5 bg-slate-900/70 hover:bg-slate-900 border border-slate-800/90 hover:border-amber-400/40 rounded-xl transition flex items-center justify-between gap-2"
                             >
                               <div className="min-w-0">
-                                <p className="text-xs md:text-sm font-semibold text-gray-100 truncate">
+                                <p className="text-xs md:text-sm font-semibold text-white truncate">
                                   {place.name}
                                 </p>
-                                <p className="text-[11px] text-gray-400 truncate">
-                                  ⭐ {Number(place.average_rating).toFixed(1)}
-                                  {place.district && place.district !== 'Diğer' ? ` • ${place.district}` : ''}
-                                  {place.address ? ` • ${place.address}` : ''}
+                                <p className="text-[11px] text-slate-400 truncate flex items-center gap-1 mt-0.5">
+                                  <Star className="w-3 h-3 text-amber-400 fill-amber-400 inline shrink-0" />
+                                  <span>{Number(place.average_rating).toFixed(1)}</span>
+                                  {place.district && place.district !== 'Diğer' ? (
+                                    <span>• {place.district}</span>
+                                  ) : null}
+                                  {place.address ? <span>• {place.address}</span> : null}
                                   {typeof place.distanceFromUser === 'number' && (
-                                    <span className="text-primary-400 font-semibold">
-                                      {' '}
+                                    <span className="text-amber-400 font-semibold">
                                       • {place.distanceFromUser.toFixed(1)} km
                                     </span>
                                   )}
@@ -1024,13 +1058,13 @@ export default function RoutePlannerPage() {
                                 type="button"
                                 disabled={isAdded}
                                 onClick={() => handleAddStop(place)}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition flex-shrink-0 ${
+                                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition shrink-0 ${
                                   isAdded
-                                    ? 'bg-emerald-500/20 text-emerald-300 cursor-default'
-                                    : 'bg-primary-500/20 hover:bg-primary-500 text-primary-300 hover:text-white'
+                                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 cursor-default'
+                                    : 'bg-amber-400/15 hover:bg-amber-400 text-amber-300 hover:text-slate-950 border border-amber-400/30 cursor-pointer'
                                 }`}
                               >
-                                {isAdded ? 'Eklendi ✓' : '+ Ekle'}
+                                {isAdded ? 'Eklendi' : '+ Ekle'}
                               </button>
                             </motion.div>
                           )
@@ -1043,8 +1077,8 @@ export default function RoutePlannerPage() {
 
               {/* Seçili Rota Durakları */}
               {selectedStops.length > 0 && (
-                <div className="pt-2 border-t border-white/10">
-                  <div className="flex items-center justify-between text-xs text-gray-400 font-semibold mb-2 px-1">
+                <div className="pt-3 border-t border-slate-800/80">
+                  <div className="flex items-center justify-between text-xs text-slate-400 font-semibold mb-2 px-1">
                     <span>ROTADAKİ DURAKLAR ({selectedStops.length})</span>
                     <button
                       type="button"
@@ -1052,7 +1086,7 @@ export default function RoutePlannerPage() {
                         setSelectedStops([])
                         setActiveStopIndex(null)
                       }}
-                      className="text-red-400 hover:text-red-300 transition"
+                      className="text-red-400 hover:text-red-300 transition cursor-pointer"
                     >
                       Temizle
                     </button>
@@ -1065,12 +1099,12 @@ export default function RoutePlannerPage() {
                         layout
                         className={`p-2.5 md:p-3 rounded-xl border transition-all ${
                           activeStopIndex === idx
-                            ? 'bg-primary-500/15 border-primary-500/40 shadow-lg'
-                            : 'bg-white/5 border-white/10'
+                            ? 'bg-amber-400/10 border-amber-400/40 shadow-lg'
+                            : 'bg-slate-900/75 border-slate-800/90'
                         }`}
                       >
                         <div className="flex items-center gap-2.5">
-                          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-primary-400 to-primary-600 text-white font-black text-xs flex items-center justify-center flex-shrink-0">
+                          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shrink-0">
                             {idx + 1}
                           </div>
 
@@ -1078,37 +1112,37 @@ export default function RoutePlannerPage() {
                             className="flex-1 min-w-0 cursor-pointer"
                             onClick={() => handleFocusPlace(stop.place.latitude, stop.place.longitude, idx)}
                           >
-                            <h4 className="text-xs md:text-sm font-bold text-gray-100 truncate">
+                            <h4 className="text-xs md:text-sm font-semibold text-white truncate">
                               {stop.place.name}
                             </h4>
-                            <p className="text-[11px] text-gray-400 truncate">
+                            <p className="text-[11px] text-slate-400 truncate">
                               {stop.place.address}
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-0.5">
                             <button
                               type="button"
                               disabled={idx === 0}
                               onClick={() => handleMoveStop(idx, 'up')}
-                              className="p-1 text-gray-400 disabled:opacity-20 text-xs"
+                              className="p-1 text-slate-400 hover:text-amber-300 disabled:opacity-20 cursor-pointer"
                             >
-                              ▲
+                              <ChevronUp className="w-3.5 h-3.5" />
                             </button>
                             <button
                               type="button"
                               disabled={idx === selectedStops.length - 1}
                               onClick={() => handleMoveStop(idx, 'down')}
-                              className="p-1 text-gray-400 disabled:opacity-20 text-xs"
+                              className="p-1 text-slate-400 hover:text-amber-300 disabled:opacity-20 cursor-pointer"
                             >
-                              ▼
+                              <ChevronDown className="w-3.5 h-3.5" />
                             </button>
                             <button
                               type="button"
                               onClick={() => handleRemoveStop(idx)}
-                              className="p-1 text-gray-400 hover:text-red-400 text-xs ml-1"
+                              className="p-1 text-slate-400 hover:text-red-400 ml-1 cursor-pointer"
                             >
-                              ✕
+                              <X className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
@@ -1120,17 +1154,17 @@ export default function RoutePlannerPage() {
             </div>
 
             {selectedStops.length >= 2 && (
-              <div className="p-3 md:p-4 border-t border-white/10 bg-gray-900/90">
-                <div className="flex items-center justify-between mb-2 bg-white/5 p-2.5 rounded-xl border border-white/5 text-xs">
+              <div className="p-3 md:p-4 border-t border-slate-800/80 bg-[#070b14]/90">
+                <div className="flex items-center justify-between mb-2.5 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-xs">
                   <div>
-                    <span className="text-gray-400">Mesafe</span>
-                    <p className="font-bold text-gray-100">
+                    <span className="text-slate-400">Toplam Mesafe</span>
+                    <p className="font-bold text-white mt-0.5">
                       {realRouteStats ? `${realRouteStats.distanceKm} km` : '...'}
                     </p>
                   </div>
                   <div className="text-right">
-                    <span className="text-gray-400">Süre</span>
-                    <p className="font-bold text-primary-400">
+                    <span className="text-slate-400">Tahmini Süre</span>
+                    <p className="font-bold text-amber-400 mt-0.5">
                       {realRouteStats
                         ? realRouteStats.durationMin >= 60
                           ? `${Math.floor(realRouteStats.durationMin / 60)}s ${realRouteStats.durationMin % 60}dk`
@@ -1143,9 +1177,10 @@ export default function RoutePlannerPage() {
                 <button
                   type="button"
                   onClick={handleOpenInGoogleMaps}
-                  className="btn-primary w-full py-2.5 text-xs md:text-sm font-bold flex items-center justify-center gap-2"
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-semibold text-xs md:text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-500/15 transition cursor-pointer"
                 >
-                  <span>🗺️</span> Google Maps ile Başlat
+                  <Navigation className="w-4 h-4" strokeWidth={2.2} />
+                  <span>Google Maps ile Başlat</span>
                 </button>
               </div>
             )}
@@ -1157,10 +1192,10 @@ export default function RoutePlannerPage() {
       <button
         type="button"
         onClick={() => setIsSidebarOpen((prev) => !prev)}
-        className="hidden md:flex my-auto -ml-3 z-30 h-10 w-7 bg-gray-800 text-gray-300 hover:text-white rounded-r-lg border border-white/10 items-center justify-center shadow-lg transition flex-shrink-0"
+        className="hidden md:flex my-auto -ml-3 z-30 h-10 w-7 bg-[#0c1220] text-slate-300 hover:text-amber-300 rounded-r-lg border border-slate-800 items-center justify-center shadow-lg transition shrink-0 cursor-pointer"
         title={isSidebarOpen ? 'Paneli Gizle' : 'Paneli Göster'}
       >
-        {isSidebarOpen ? '◀' : '▶'}
+        {isSidebarOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
       </button>
 
       {/* HARİTA */}
@@ -1168,10 +1203,10 @@ export default function RoutePlannerPage() {
         <div ref={mapContainerRef} className="w-full h-full" />
 
         <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-1.5 pointer-events-none">
-          <div className="glass-panel px-2.5 py-1 rounded-full text-[11px] font-semibold text-gray-200 border border-white/10 shadow-lg flex items-center gap-1.5 pointer-events-auto bg-gray-900/80">
+          <div className="px-3 py-1.5 rounded-full text-[11px] font-semibold text-slate-200 border border-slate-800/90 shadow-lg flex items-center gap-2 pointer-events-auto bg-[#0c1220]/90 backdrop-blur-md">
             <span
               className={`w-2 h-2 rounded-full ${
-                selectedCategoryId ? 'bg-emerald-500 animate-pulse' : 'bg-gray-500'
+                selectedCategoryId ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
               }`}
             />
             <span>
@@ -1182,8 +1217,8 @@ export default function RoutePlannerPage() {
           </div>
 
           {isRoutingLoading && (
-            <div className="glass-panel px-2.5 py-1 rounded-full text-[11px] font-semibold text-primary-400 border border-primary-500/20 shadow-lg flex items-center gap-1.5 pointer-events-auto bg-gray-900/80">
-              <span className="animate-spin">⏳</span>
+            <div className="px-3 py-1.5 rounded-full text-[11px] font-semibold text-amber-300 border border-amber-400/25 shadow-lg flex items-center gap-1.5 pointer-events-auto bg-[#0c1220]/90 backdrop-blur-md">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
               <span>Rota Hesaplanıyor...</span>
             </div>
           )}

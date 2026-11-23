@@ -4,7 +4,22 @@ import AnimatedBackground from '@/components/ui/AnimatedBackground'
 import AnimatedSection from '@/components/ui/AnimatedSection'
 import Link from 'next/link'
 import MapView from '@/components/map/MapView'
-import EmptyState from '@/components/ui/EmptyState'
+import {
+  Compass,
+  Search,
+  MapPin,
+  Star,
+  List,
+  Map as MapIcon,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
+  SlidersHorizontal,
+  MessageSquare,
+  ArrowRight,
+  RotateCcw,
+  Inbox,
+} from 'lucide-react'
 
 export const metadata: Metadata = {
   title: 'Keşfet | İstanbul Keşif Rehberi',
@@ -56,8 +71,11 @@ const ILCELER = [
   'Eyüpsultan', 'Fatih', 'Gaziosmanpaşa', 'Güngören', 'Kadıköy', 'Kağıthane',
   'Kartal', 'Küçükçekmece', 'Maltepe', 'Pendik', 'Sancaktepe', 'Sarıyer',
   'Silivri', 'Sultanbeyli', 'Sultangazi', 'Şile', 'Şişli', 'Tuzla',
-  'Ümraniye', 'Üsküdar', 'Zeytinburnu'
+  'Ümraniye', 'Üsküdar', 'Zeytinburnu',
 ]
+
+const inputClass =
+  'w-full rounded-xl bg-slate-900/90 border border-slate-800 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/15 transition-all'
 
 function shuffleArray<T>(array: T[]): T[] {
   const arr = [...array]
@@ -68,7 +86,10 @@ function shuffleArray<T>(array: T[]): T[] {
   return arr
 }
 
-function buildQueryString(sp: Record<string, string | string[] | undefined>, overrides: Record<string, string>) {
+function buildQueryString(
+  sp: Record<string, string | string[] | undefined>,
+  overrides: Record<string, string>
+) {
   const params = new URLSearchParams()
   Object.entries(sp).forEach(([key, val]) => {
     if (!val) return
@@ -124,7 +145,7 @@ export default async function KesfetPage({
     .from('places')
     .select(
       `
-      id, name, address, average_rating, total_reviews, total_photos,
+      id, name, address, image_url, average_rating, total_reviews, total_photos,
       category_id, price_range, latitude, longitude,
       categories ( name, icon )
     `,
@@ -180,7 +201,7 @@ export default async function KesfetPage({
 
   // 3. Öneriler sorgusu (Favorilere göre eşit bölünmüş + yüksek yıldızlı + rastgele)
   let recommendedPlaces: any[] = []
-  let recommendationTitle = '⭐ En Yüksek Puanlı Mekanlar'
+  let isPersonalizedRecommendations = false
   let places: any[] | null = null
   let count: number | null = null
 
@@ -232,13 +253,11 @@ export default async function KesfetPage({
       })
     }
 
-    // Favori kategorilerini rastgele karıştırıp en fazla 5 tanesini seç (her birine eşit pay düşmesi için)
     const activeFavCategories = shuffleArray(Array.from(favoriteCategorySet)).slice(0, 5)
 
     if (activeFavCategories.length > 0) {
-      recommendationTitle = '✨ Sana Özel Öneriler'
+      isPersonalizedRecommendations = true
 
-      // Her favori kategorisi için ayrı ayrı en yüksek puanlı ilk 30 mekanı paralel çek
       const perCategoryResults = await Promise.all(
         activeFavCategories.map((catId) =>
           supabase
@@ -255,12 +274,10 @@ export default async function KesfetPage({
         )
       )
 
-      // Her kategorinin yüksek puanlı havuzundan favorilenmemişleri alıp rastgele karıştır
       const categoryPools: any[][] = perCategoryResults.map((res) =>
         shuffleArray((res.data ?? []).filter((p) => !favoritedPlaceIds.has(p.id)))
       )
 
-      // Round-robin (sırayla 1'er tane alarak) kategoriler arasında EŞİT BÖL
       const selected: any[] = []
       const selectedIds = new Set<string>()
       let addedInRound = true
@@ -278,7 +295,6 @@ export default async function KesfetPage({
         }
       }
 
-      // Eksik kalan slot varsa yüksek puanlı genel havuzdan rastgele tamamla
       if (selected.length < TARGET_RECOMMENDATIONS) {
         const shuffledFallback = shuffleArray(topRatedData ?? [])
         for (const place of shuffledFallback) {
@@ -290,10 +306,8 @@ export default async function KesfetPage({
         }
       }
 
-      // Kartların ekranda kategori sırasına göre dizilmemesi için son bir kez karıştır
       recommendedPlaces = shuffleArray(selected)
     } else {
-      // Kullanıcının henüz favorisi yoksa yüksek puanlılardan rastgele 10 mekan göster
       recommendedPlaces = shuffleArray(topRatedData ?? []).slice(0, TARGET_RECOMMENDATIONS)
     }
   } else {
@@ -313,35 +327,96 @@ export default async function KesfetPage({
   )
 
   return (
-    <div className="relative min-h-screen">
+    <div className="relative min-h-screen bg-[#070b14] text-slate-100 pb-20 selection:bg-amber-400 selection:text-slate-950">
+      {/* Gece mavisi & altın atmosferik ışık katmanları */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 -left-40 h-[520px] w-[520px] rounded-full bg-blue-600/15 blur-[130px]" />
+        <div className="absolute top-20 right-0 h-[440px] w-[440px] rounded-full bg-amber-500/10 blur-[130px]" />
+      </div>
+
       <AnimatedBackground />
-      <div className="relative z-10 max-w-7xl mx-auto px-4 py-8">
+
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 pb-8">
+        {/* ÜST BAŞLIK */}
         <AnimatedSection>
-          <h1 className="text-3xl font-bold mb-8 text-gray-100">Keşfet</h1>
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-amber-400/10 border border-amber-400/25 px-3.5 py-1 text-xs font-medium text-amber-300 mb-3">
+                <Compass className="w-3.5 h-3.5 text-amber-400" strokeWidth={2} />
+                <span>39 İlçe · Mekan Rehberi</span>
+              </div>
+              <h1 className="font-serif text-3xl sm:text-4xl lg:text-5xl text-white">
+                Mekanları Keşfet
+              </h1>
+              <p className="text-slate-400 text-sm sm:text-base mt-1.5">
+                İlçe, kategori, puan ve özelliklere göre filtrele; harita veya liste görünümünde incele.
+              </p>
+            </div>
+
+            {typeof count === 'number' && (
+              <div className="text-xs sm:text-sm text-slate-400">
+                <span className="font-semibold text-amber-400">
+                  {count.toLocaleString('tr-TR')}
+                </span>{' '}
+                mekan listeleniyor
+              </div>
+            )}
+          </div>
         </AnimatedSection>
 
-        {/* Öneriler Bölümü */}
+        {/* ÖNERİLER BANDI */}
         {recommendedPlaces.length > 0 && (
-          <div className="mb-8">
-            <h2 className="text-xl font-bold text-gray-100 mb-4">{recommendationTitle}</h2>
+          <div className="mb-10">
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <h2 className="font-serif text-xl sm:text-2xl text-white flex items-center gap-2">
+                {isPersonalizedRecommendations ? (
+                  <Sparkles className="w-5 h-5 text-amber-400" strokeWidth={1.9} />
+                ) : (
+                  <Star className="w-5 h-5 text-amber-400 fill-amber-400" />
+                )}
+                <span>
+                  {isPersonalizedRecommendations
+                    ? 'Sana Özel Öneriler'
+                    : 'En Yüksek Puanlı Mekanlar'}
+                </span>
+              </h2>
+            </div>
+
             <div className="flex gap-4 overflow-x-auto pb-4">
               {recommendedPlaces.map((place) => {
-                const category = Array.isArray(place.categories) ? place.categories[0] : place.categories
+                const category = Array.isArray(place.categories)
+                  ? place.categories[0]
+                  : place.categories
                 return (
                   <Link
                     key={place.id}
                     href={`/mekan/${place.id}`}
-                    className="flex-shrink-0 w-64 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-4 hover:bg-white/10 transition"
+                    className="group shrink-0 w-72 rounded-2xl bg-[#0c1220] border border-slate-800/90 hover:border-amber-400/50 p-4 transition-all duration-200 flex flex-col justify-between"
                   >
-                    <span className="text-sm text-primary-400">
-                      {category?.icon || '📍'} {category?.name}
-                    </span>
-                    <h3 className="font-bold text-gray-100 mt-2">{place.name}</h3>
-                    <p className="text-gray-400 text-sm mt-1 line-clamp-1">{place.address}</p>
-                    <div className="flex items-center gap-2 mt-2">
-                      <span className="text-yellow-400">★</span>
-                      <span className="text-gray-200 font-semibold">{Number(place.average_rating).toFixed(1)}</span>
-                      <span className="text-gray-400 text-sm">({place.total_reviews} yorum)</span>
+                    <div>
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-300 bg-amber-400/10 border border-amber-400/20 px-2.5 py-1 rounded-full">
+                        <MapPin className="w-3 h-3 text-amber-400" strokeWidth={2} />
+                        <span>{category?.name || 'Mekan'}</span>
+                      </span>
+                      <h3 className="font-serif text-lg text-white group-hover:text-amber-300 transition-colors mt-3 line-clamp-1">
+                        {place.name}
+                      </h3>
+                      <p className="text-slate-400 text-xs mt-1 line-clamp-1">
+                        {place.address || 'İstanbul'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-3.5 mt-3.5 border-t border-slate-800/80 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                        <span className="text-slate-100 font-semibold">
+                          {Number(place.average_rating).toFixed(1)}
+                        </span>
+                        <span className="text-slate-500">
+                          ({place.total_reviews || 0} yorum)
+                        </span>
+                      </div>
+                      <ArrowRight className="w-3.5 h-3.5 text-amber-400 group-hover:translate-x-0.5 transition-transform" />
                     </div>
                   </Link>
                 )
@@ -350,138 +425,249 @@ export default async function KesfetPage({
           </div>
         )}
 
-        {/* Filtre Paneli */}
+        {/* FİLTRE PANELİ */}
         <AnimatedSection delay={0.1}>
-          <form className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-6 mb-8 space-y-6">
+          <form className="rounded-2xl bg-[#0c1220]/90 border border-slate-800/90 shadow-2xl shadow-black/40 p-5 sm:p-7 mb-8 space-y-6">
+            <div className="flex items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+              <div className="flex items-center gap-2 text-sm font-semibold text-white">
+                <SlidersHorizontal className="w-4 h-4 text-amber-400" strokeWidth={2} />
+                <span>Detaylı Filtreleme</span>
+              </div>
+              <Link
+                href="/kesfet"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-amber-300 transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.8} />
+                <span>Filtreleri Sıfırla</span>
+              </Link>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Arama</label>
-                <input type="text" name="q" defaultValue={q || ''} placeholder="Mekan veya adres..." className="input-field" />
+                <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
+                  Arama
+                </label>
+                <div className="relative">
+                  <Search
+                    className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                    strokeWidth={1.8}
+                  />
+                  <input
+                    type="text"
+                    name="q"
+                    defaultValue={q || ''}
+                    placeholder="Mekan veya adres..."
+                    className={`${inputClass} pl-10`}
+                  />
+                </div>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Kategori</label>
-                <select name="kategori" defaultValue={kategori || ''} className="input-field">
-                  <option value="">✨ Tüm Kategoriler</option>
+                <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
+                  Kategori
+                </label>
+                <select
+                  name="kategori"
+                  defaultValue={kategori || ''}
+                  className={inputClass}
+                >
+                  <option value="">Tüm Kategoriler</option>
                   {categories?.map((cat) => (
                     <option key={cat.id} value={cat.slug}>
-                      {cat.icon ? `${cat.icon} ` : '📍 '}{cat.name}
+                      {cat.name}
                     </option>
                   ))}
                 </select>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">İlçe</label>
-                <select name="ilce" defaultValue={ilce || ''} className="input-field">
-                  <option value="">Tümü</option>
+                <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
+                  İlçe
+                </label>
+                <select
+                  name="ilce"
+                  defaultValue={ilce || ''}
+                  className={inputClass}
+                >
+                  <option value="">Tüm İlçeler</option>
                   {ILCELER.map((ilceAdi) => (
-                    <option key={ilceAdi} value={ilceAdi}>{ilceAdi}</option>
+                    <option key={ilceAdi} value={ilceAdi}>
+                      {ilceAdi}
+                    </option>
                   ))}
                 </select>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Fiyat Aralığı</label>
-                <select name="fiyat" defaultValue={fiyat || ''} className="input-field">
+                <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
+                  Fiyat Aralığı
+                </label>
+                <select
+                  name="fiyat"
+                  defaultValue={fiyat || ''}
+                  className={inputClass}
+                >
                   <option value="">Tümü</option>
-                  <option value="1">₺</option>
-                  <option value="2">₺₺</option>
-                  <option value="3">₺₺₺</option>
-                  <option value="4">₺₺₺₺</option>
+                  <option value="1">₺ (Ekonomik)</option>
+                  <option value="2">₺₺ (Orta)</option>
+                  <option value="3">₺₺₺ (Üst Segment)</option>
+                  <option value="4">₺₺₺₺ (Lüks)</option>
                 </select>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Minimum Puan</label>
-                <select name="minPuan" defaultValue={minPuan || ''} className="input-field">
-                  <option value="">Seçiniz</option>
-                  <option value="4">4+ Yıldız</option>
-                  <option value="3">3+ Yıldız</option>
-                  <option value="2">2+ Yıldız</option>
-                  <option value="1">1+ Yıldız</option>
+                <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
+                  Minimum Puan
+                </label>
+                <select
+                  name="minPuan"
+                  defaultValue={minPuan || ''}
+                  className={inputClass}
+                >
+                  <option value="">Fark Etmez</option>
+                  <option value="4">4.0+ Yıldız</option>
+                  <option value="3">3.0+ Yıldız</option>
+                  <option value="2">2.0+ Yıldız</option>
+                  <option value="1">1.0+ Yıldız</option>
                 </select>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Sıralama</label>
-                <select name="siralama" defaultValue={siralama} className="input-field">
+                <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2">
+                  Sıralama
+                </label>
+                <select
+                  name="siralama"
+                  defaultValue={siralama}
+                  className={inputClass}
+                >
                   {SIRALAMA_SECENEKLERI.map((secenek) => (
-                    <option key={secenek.value} value={secenek.value}>{secenek.label}</option>
+                    <option key={secenek.value} value={secenek.value}>
+                      {secenek.label}
+                    </option>
                   ))}
                 </select>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Özellikler</label>
-              <div className="flex flex-wrap gap-3">
+              <label className="block text-xs font-medium uppercase tracking-wider text-slate-300 mb-2.5">
+                Özellikler
+              </label>
+              <div className="flex flex-wrap gap-2.5">
                 {OZELLIKLER.map((ozellik) => (
-                  <label key={ozellik.value} className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+                  <label
+                    key={ozellik.value}
+                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900/75 border border-slate-800 hover:border-amber-400/40 px-3 py-2 text-xs font-medium text-slate-300 cursor-pointer transition-colors"
+                  >
                     <input
                       type="checkbox"
                       name="ozellikler"
                       value={ozellik.value}
                       defaultChecked={ozellikler.includes(ozellik.value)}
-                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                      className="rounded border-slate-700 bg-slate-950 text-amber-400 focus:ring-amber-400/30"
                     />
-                    {ozellik.label}
+                    <span>{ozellik.label}</span>
                   </label>
                 ))}
               </div>
             </div>
 
-            <button type="submit" className="btn-primary w-full">Filtrele</button>
+            <button
+              type="submit"
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 py-3.5 px-6 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/15 hover:from-amber-300 hover:to-amber-400 transition-all duration-200 cursor-pointer"
+            >
+              <Search className="w-4 h-4" strokeWidth={2.2} />
+              <span>Filtreleri Uygula</span>
+            </button>
           </form>
         </AnimatedSection>
 
-        {/* Görünüm seçici */}
-        <div className="flex gap-3 mb-6">
-          <Link
-            href={`/kesfet?${buildQueryString(sp, { view: 'liste', sayfa: '1' })}`}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-              view !== 'harita'
-                ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
-                : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-white/20'
-            }`}
-          >
-            📋 Liste
-          </Link>
-          <Link
-            href={`/kesfet?${buildQueryString(sp, { view: 'harita', sayfa: '1' })}`}
-            className={`px-4 py-2 rounded-full text-sm font-medium transition-all duration-200 ${
-              view === 'harita'
-                ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
-                : 'bg-white/5 text-gray-300 border border-white/10 hover:bg-white/10 hover:border-white/20'
-            }`}
-          >
-            🗺️ Harita
-          </Link>
+        {/* GÖRÜNÜM SEÇİCİ (LİSTE / HARİTA) */}
+        <div className="flex items-center justify-between gap-4 mb-6">
+          <div className="inline-flex rounded-xl bg-[#0c1220] border border-slate-800/90 p-1">
+            <Link
+              href={`/kesfet?${buildQueryString(sp, { view: 'liste', sayfa: '1' })}`}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
+                view !== 'harita'
+                  ? 'bg-amber-400 text-slate-950 font-semibold shadow-sm'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <List className="w-4 h-4" strokeWidth={2} />
+              <span>Liste Görünümü</span>
+            </Link>
+            <Link
+              href={`/kesfet?${buildQueryString(sp, { view: 'harita', sayfa: '1' })}`}
+              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${
+                view === 'harita'
+                  ? 'bg-amber-400 text-slate-950 font-semibold shadow-sm'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <MapIcon className="w-4 h-4" strokeWidth={2} />
+              <span>Harita Görünümü</span>
+            </Link>
+          </div>
         </div>
 
-        {/* İçerik */}
+        {/* ANA İÇERİK */}
         {view === 'harita' ? (
           <AnimatedSection>
-            <MapView places={mapPlaces} />
+            <div className="rounded-2xl overflow-hidden border border-slate-800/90 bg-[#0c1220]">
+              <MapView places={mapPlaces} />
+            </div>
           </AnimatedSection>
         ) : places && places.length > 0 ? (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {places.map((place: any, index: number) => {
-                const category = Array.isArray(place.categories) ? place.categories[0] : place.categories
+                const category = Array.isArray(place.categories)
+                  ? place.categories[0]
+                  : place.categories
+
                 return (
                   <AnimatedSection key={place.id} delay={Math.min(index * 0.03, 0.3)}>
-                    <Link href={`/mekan/${place.id}`} className="card block p-6">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-white/10 text-primary-400 border border-white/10 flex items-center gap-1.5">
-                          <span>{category?.icon || '📍'}</span>
-                          <span>{category?.name || 'Kategori Yok'}</span>
-                        </span>
+                    <Link
+                      href={`/mekan/${place.id}`}
+                      className="group h-full flex flex-col justify-between rounded-2xl bg-[#0c1220] border border-slate-800/90 hover:border-amber-400/60 p-6 transition-all duration-200 shadow-xl shadow-black/30"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between gap-2 mb-3.5">
+                          <span className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1 rounded-full bg-slate-900 text-amber-300 border border-slate-800">
+                            <MapPin className="w-3.5 h-3.5 text-amber-400" strokeWidth={1.8} />
+                            <span>{category?.name || 'Kategori Yok'}</span>
+                          </span>
+
+                          <div className="inline-flex items-center gap-1 rounded-full bg-amber-400/10 border border-amber-400/25 px-2.5 py-1">
+                            <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                            <span className="text-xs font-semibold text-amber-300">
+                              {Number(place.average_rating).toFixed(1)}
+                            </span>
+                          </div>
+                        </div>
+
+                        <h2 className="font-serif text-xl text-white group-hover:text-amber-300 transition-colors line-clamp-1">
+                          {place.name}
+                        </h2>
+
+                        <p className="text-slate-400 text-sm mt-1.5 line-clamp-1">
+                          {place.address || 'İstanbul'}
+                        </p>
                       </div>
-                      <h2 className="font-bold text-lg text-gray-100">{place.name}</h2>
-                      <p className="text-gray-400 text-sm line-clamp-1">{place.address}</p>
-                      <div className="mt-3 flex items-center gap-2">
-                        <span className="text-yellow-500">★</span>
-                        <span className="font-semibold text-gray-200">{Number(place.average_rating).toFixed(1)}</span>
-                        <span className="text-gray-400 text-sm">({place.total_reviews} yorum)</span>
+
+                      <div className="flex items-center justify-between pt-4 mt-5 border-t border-slate-800/80 text-xs text-slate-400">
+                        <span className="inline-flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5 text-slate-500" strokeWidth={1.8} />
+                          <span>{place.total_reviews || 0} yorum</span>
+                        </span>
+
+                        <span className="inline-flex items-center gap-1 text-amber-400 font-semibold group-hover:translate-x-1 transition-transform">
+                          <span>İncele</span>
+                          <ArrowRight className="w-3.5 h-3.5" strokeWidth={2} />
+                        </span>
                       </div>
                     </Link>
                   </AnimatedSection>
@@ -489,19 +675,21 @@ export default async function KesfetPage({
               })}
             </div>
 
-            {/* Sayfalama Sekmesi */}
+            {/* SAYFALAMA */}
             {totalPages > 1 && (
               <div className="flex justify-center items-center gap-2 mt-12 pb-8">
                 {page > 1 ? (
                   <Link
                     href={`/kesfet?${buildQueryString(sp, { sayfa: String(page - 1) })}`}
-                    className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 transition"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0c1220] border border-slate-800 text-xs sm:text-sm font-medium text-slate-200 hover:border-amber-400/50 hover:text-amber-300 transition"
                   >
-                    ← Önceki
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Önceki</span>
                   </Link>
                 ) : (
-                  <span className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 text-gray-600 cursor-not-allowed">
-                    ← Önceki
+                  <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0c1220]/50 border border-slate-800/50 text-xs sm:text-sm text-slate-600 cursor-not-allowed">
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Önceki</span>
                   </span>
                 )}
 
@@ -512,13 +700,15 @@ export default async function KesfetPage({
                       const showEllipsis = idx > 0 && pageNum - array[idx - 1] > 1
                       return (
                         <div key={pageNum} className="flex items-center gap-1.5">
-                          {showEllipsis && <span className="text-gray-500 px-1">...</span>}
+                          {showEllipsis && (
+                            <span className="text-slate-500 px-1 text-xs">...</span>
+                          )}
                           <Link
                             href={`/kesfet?${buildQueryString(sp, { sayfa: String(pageNum) })}`}
-                            className={`px-4 py-2 rounded-xl font-medium transition ${
+                            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium transition ${
                               page === pageNum
-                                ? 'bg-primary-500 text-white shadow-lg shadow-primary-500/25'
-                                : 'bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10'
+                                ? 'bg-amber-400 text-slate-950 font-semibold shadow-lg shadow-amber-500/20'
+                                : 'bg-[#0c1220] border border-slate-800 text-slate-300 hover:border-amber-400/50 hover:text-amber-300'
                             }`}
                           >
                             {pageNum}
@@ -531,13 +721,15 @@ export default async function KesfetPage({
                 {page < totalPages ? (
                   <Link
                     href={`/kesfet?${buildQueryString(sp, { sayfa: String(page + 1) })}`}
-                    className="px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10 transition"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0c1220] border border-slate-800 text-xs sm:text-sm font-medium text-slate-200 hover:border-amber-400/50 hover:text-amber-300 transition"
                   >
-                    Sonraki →
+                    <span>Sonraki</span>
+                    <ChevronRight className="w-4 h-4" />
                   </Link>
                 ) : (
-                  <span className="px-4 py-2 rounded-xl bg-white/5 border border-white/5 text-gray-600 cursor-not-allowed">
-                    Sonraki →
+                  <span className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0c1220]/50 border border-slate-800/50 text-xs sm:text-sm text-slate-600 cursor-not-allowed">
+                    <span>Sonraki</span>
+                    <ChevronRight className="w-4 h-4" />
                   </span>
                 )}
               </div>
@@ -545,16 +737,24 @@ export default async function KesfetPage({
           </>
         ) : (
           <AnimatedSection>
-            <EmptyState
-              icon="😕"
-              title="Aradığın kriterlere uygun mekan bulunamadı"
-              description="Filtreleri değiştirmeyi dene ya da çarkı çevirerek rastgele bir seçim yap."
-              action={
-                <Link href="/cark" className="inline-block px-6 py-3 bg-primary-500 text-white rounded-full hover:bg-primary-600 transition">
-                  🎡 Çarkı Çevir!
-                </Link>
-              }
-            />
+            <div className="rounded-2xl bg-[#0c1220] border border-slate-800/90 p-10 text-center flex flex-col items-center justify-center space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-400/10 border border-amber-400/25 flex items-center justify-center text-amber-400">
+                <Inbox className="w-6 h-6" strokeWidth={1.8} />
+              </div>
+              <h3 className="font-serif text-2xl text-white">
+                Aradığın kriterlere uygun mekan bulunamadı
+              </h3>
+              <p className="text-slate-400 text-sm max-w-md">
+                Filtreleri değiştirmeyi dene ya da çarkı çevirerek rastgele bir seçim yap.
+              </p>
+              <Link
+                href="/cark"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-semibold text-sm rounded-xl hover:from-amber-300 hover:to-amber-400 transition"
+              >
+                <Compass className="w-4 h-4" strokeWidth={2.2} />
+                <span>Çarkı Çevir</span>
+              </Link>
+            </div>
           </AnimatedSection>
         )}
       </div>
