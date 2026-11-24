@@ -125,10 +125,10 @@ export default function Navbar() {
             href="/"
             className="inline-flex items-center gap-2.5 shrink-0 group"
           >
-            <span className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/30 flex items-center justify-center text-amber-400 group-hover:bg-amber-400 group-hover:text-slate-950 transition-all duration-200">
-              <Compass className="w-4 h-4" strokeWidth={2} />
+            <span className="w-9 h-9 rounded-xl bg-amber-400/10 border border-amber-400/30 flex items-center justify-center text-amber-400 transition-all duration-200">
+              <Compass className="w-4 h-4 group-hover:rotate-270 transition-transform duration-800" strokeWidth={2} />
             </span>
-            <span className="font-serif text-lg sm:text-xl text-white group-hover:text-amber-300 transition-colors">
+            <span className="font-serif text-lg sm:text-xl text-white group-hover:text-amber-300 transition-colors transition-transform-duration-500">
               İstanbul Keşif
             </span>
           </Link>
