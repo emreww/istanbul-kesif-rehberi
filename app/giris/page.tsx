@@ -148,8 +148,10 @@ export default function GirisPage() {
             fetchPriority="high"
             className="absolute inset-0 h-full w-full object-cover"
           />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#070b14] via-[#070b14]/70 to-[#070b14]/35" />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#070b14]/80 via-[#070b14]/25 to-[#070b14]/85" />
+          {/* Dikey karartma azaltıldı: via-40 ve to-10 yapıldı */}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#070b14] via-[#070b14]/50 to-[#070b14]/20" />
+          {/* Yatay vinyet yumuşatıldı: kenarlar 50, orta tamamen şeffaf (transparent) yapıldı */}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[#070b14]/50 via-transparent to-[#070b14]/50" />
 
           <div className="relative z-10 p-6 sm:p-10 lg:p-10 flex items-center justify-between gap-4">
             <div className="inline-flex items-center gap-2 rounded-full bg-[#070b14]/85 border border-amber-400/35 px-4 py-1.5 text-xs font-medium text-amber-300 backdrop-blur-md">
@@ -167,7 +169,7 @@ export default function GirisPage() {
             <div className="max-w-2xl">
               <h2 className="font-serif text-4xl sm:text-5xl xl:text-6xl text-white leading-[1.12] tracking-tight">
                 İstanbul'u haritada değil,{' '}
-                <span className="bg-gradient-to-r from-amber-200 via-amber-400 to-yellow-500 bg-clip-text text-transparent italic">
+                <span className="bg-gradient-to-r from-amber-300 via-amber-500 to-yellow-500 bg-clip-text text-transparent italic pr-1  ">
                   kendi rotanda
                 </span>{' '}
                 yaşa.

@@ -13,7 +13,11 @@ export default function KayitPage() {
   const [hata, setHata] = useState('')
   const [yukleniyor, setYukleniyor] = useState(false)
   const [mailGonderildi, setMailGonderildi] = useState(false)
-  
+  const [kosullarKabul, setKosullarKabul] = useState(false)
+  const [aydinlatmaOkudum, setAydinlatmaOkudum] = useState(false)
+  const [pazarlamaIzni, setPazarlamaIzni] = useState(false)
+
+
   const supabase = createClient()
 
   // Şifre gereksinimleri
@@ -40,6 +44,11 @@ export default function KayitPage() {
       return
     }
 
+    if (!kosullarKabul || !aydinlatmaOkudum) {
+      setHata('Devam etmek için kullanım koşullarını ve KVKK aydınlatma metnini onaylamalısın.')
+      return
+    }
+
     setYukleniyor(true)
 
     const { data, error } = await supabase.auth.signUp({
@@ -48,6 +57,12 @@ export default function KayitPage() {
       options: {
         data: {
           username: kullaniciAdi,
+          terms_accepted: kosullarKabul,
+          terms_version: 'v1',
+          privacy_ack: aydinlatmaOkudum,
+          privacy_version: 'v1',
+          marketing_consent: pazarlamaIzni,
+          marketing_version: 'v1',
         },
         // Maildeki onay linkine tıklanınca yönlendirilecek adres
         emailRedirectTo: `${typeof window !== 'undefined' ? window.location.origin : ''}/auth/callback`,
@@ -75,7 +90,7 @@ export default function KayitPage() {
       <AnimatedBackground />
       <div className="relative z-10 flex items-center justify-center min-h-screen px-4 py-12">
         <div className="w-full max-w-md bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl p-8">
-          
+
           {mailGonderildi ? (
             /* E-POSTA DOĞRULAMA BİLGİLENDİRME KARTI */
             <div className="text-center py-4 space-y-4">
@@ -176,9 +191,8 @@ export default function KayitPage() {
                       {sifreGereksinimleri.map((g, index) => (
                         <div
                           key={index}
-                          className={`flex items-center gap-2 text-sm font-medium ${
-                            g.kontrol ? 'text-green-300' : 'text-red-300'
-                          }`}
+                          className={`flex items-center gap-2 text-sm font-medium ${g.kontrol ? 'text-green-300' : 'text-red-300'
+                            }`}
                         >
                           <span className={`text-base ${g.kontrol ? 'text-green-300' : 'text-red-400'}`}>
                             {g.kontrol ? '✓' : '✗'}
@@ -209,9 +223,57 @@ export default function KayitPage() {
                   )}
                 </div>
 
+
+
+                <div className="space-y-3 text-sm text-gray-300">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={kosullarKabul}
+                      onChange={(e) => setKosullarKabul(e.target.checked)}
+                      className="mt-1"
+                      required
+                    />
+                    <span>
+                      <Link href="/kullanim-kosullari" target="_blank" className="text-primary-400 hover:underline">
+                        Üyelik ve Kullanım Koşulları
+                      </Link>
+                      'nı okudum, kabul ediyorum. <span className="text-red-400">*</span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={aydinlatmaOkudum}
+                      onChange={(e) => setAydinlatmaOkudum(e.target.checked)}
+                      className="mt-1"
+                      required
+                    />
+                    <span>
+                      <Link href="/kvkk" target="_blank" className="text-primary-400 hover:underline">
+                        KVKK Aydınlatma Metni
+                      </Link>
+                      'ni okudum ve anladım. <span className="text-red-400">*</span>
+                    </span>
+                  </label>
+
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={pazarlamaIzni}
+                      onChange={(e) => setPazarlamaIzni(e.target.checked)}
+                      className="mt-1"
+                    />
+                    <span className="text-gray-400">
+                      (İsteğe bağlı) Kampanya, duyuru ve yeniliklerden e-posta ile haberdar olmak istiyorum.
+                    </span>
+                  </label>
+                </div>
+
                 <button
                   type="submit"
-                  disabled={yukleniyor || !sifreGecerli || !sifreEslesiyor}
+                  disabled={yukleniyor || !sifreGecerli || !sifreEslesiyor || !kosullarKabul || !aydinlatmaOkudum}
                   className="btn-primary w-full py-3 disabled:opacity-50"
                 >
                   {yukleniyor ? 'Kaydediliyor...' : 'Kayıt Ol'}
