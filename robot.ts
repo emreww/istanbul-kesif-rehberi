@@ -1,21 +1,40 @@
 import { MetadataRoute } from 'next';
 
+const DISALLOWED_PATHS = [
+  '/admin/',
+  '/api/',
+  '/mesajlar/',
+  '/profil/',
+  '/listelerim/',
+  '/mekan-ekle/',
+  '/mekan-duzenle/',
+];
+
+const BLOCKED_BOTS = [
+  'Reflectionbot',
+  'GPTBot',
+  'ChatGPT-User',
+  'ClaudeBot',
+  'anthropic-ai',
+  'CCBot',
+  'Bytespider',
+  'Google-Extended',
+  'Amazonbot',
+];
+
 export default function robots(): MetadataRoute.Robots {
   return {
-    rules: {
-      userAgent: '*', // Tüm botlar için geçerli
-      allow: '/',     // Her yeri tara
-      disallow: [     // Ancak şu sayfaları tarama:
-        '/admin/',    // Yönetim paneli
-        '/api/',      // API rotaları
-        '/mesajlar/', // Özel mesajlar
-        '/profil/',   // Kullanıcı profilleri
-        '/listelerim/',
-        '/mekan-ekle/',
-        '/mekan-duzenle/',
-      ],
-    },
-    // Sitemap dosyanızın adresi (Loglarda sitemap.xml olduğunu gördük)
+    rules: [
+      ...BLOCKED_BOTS.map((userAgent) => ({
+        userAgent,
+        disallow: '/',
+      })),
+      {
+        userAgent: '*',
+        allow: '/',
+        disallow: DISALLOWED_PATHS,
+      },
+    ],
     sitemap: 'https://kesifistanbul.com.tr/sitemap.xml',
   };
 }
