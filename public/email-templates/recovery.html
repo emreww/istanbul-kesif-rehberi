@@ -19,7 +19,6 @@
     .sub { color: #4b5563 !important; }
     .muted { color: #6b7280 !important; }
     .code-box { background: #f9fafb !important; border-color: #d1d5db !important; color: #111827 !important; }
-    .line { border-color: #e5e7eb !important; }
   }
 </style>
 </head>
@@ -33,7 +32,6 @@
       <td align="center" style="padding: 36px 14px;">
         <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" class="container" style="width: 560px; max-width: 560px;">
 
-          <!-- Marka -->
           <tr>
             <td align="center" style="padding: 0 0 22px 0;">
               <a href="https://kesifistanbul.com.tr" style="display: inline-block; text-decoration: none; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 20px; font-weight: 700; color: #fbbf24; letter-spacing: 0.2px;">
@@ -42,7 +40,6 @@
             </td>
           </tr>
 
-          <!-- Ana Kart -->
           <tr>
             <td class="card" style="background: #111827; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 18px; overflow: hidden;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
@@ -57,23 +54,21 @@
                     </h1>
 
                     <p class="sub" style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #9ca3af;">
-                      Hesabının şifresini yenilemek için aşağıdaki butona tıkla. Bu bağlantıyı sen talep etmediysen bu e-postayı görmezden gelebilirsin.
+                      Hesabının şifresini yenilemek için aşağıdaki butona tıkla veya açılan sayfada doğrulama kodunu kullan. Bu isteği sen yapmadıysan bu e-postayı görmezden gelebilirsin.
                     </p>
 
-                    <!-- Buton -->
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" class="btn" style="margin: 0 0 26px 0;">
                       <tr>
                         <td align="center" bgcolor="#fbbf24" style="border-radius: 12px;">
-                          <a href="{{ .ConfirmationURL }}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 13px 28px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 700; color: #090d16; text-decoration: none; border-radius: 12px; background: #fbbf24;">
+                          <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 13px 28px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 700; color: #090d16; text-decoration: none; border-radius: 12px; background: #fbbf24;">
                             Şifreyi Sıfırla
                           </a>
                         </td>
                       </tr>
                     </table>
 
-                    <!-- Alternatif Kod -->
                     <p class="muted" style="margin: 0 0 8px 0; font-size: 13px; line-height: 20px; color: #9ca3af;">
-                      Alternatif olarak, şu kodu gir:
+                      Alternatif olarak, şu 6 haneli doğrulama kodunu kullan:
                     </p>
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 24px 0;">
                       <tr>
@@ -83,13 +78,12 @@
                       </tr>
                     </table>
 
-                    <!-- Yedek Bağlantı -->
                     <p class="muted" style="margin: 0 0 6px 0; font-size: 12px; line-height: 18px; color: #6b7280;">
                       Buton açılmıyorsa bu bağlantıyı tarayıcına yapıştır:
                     </p>
                     <p style="margin: 0; font-size: 12px; line-height: 18px; word-break: break-all;">
-                      <a href="{{ .ConfirmationURL }}" target="_blank" rel="noopener noreferrer" style="color: #fbbf24; text-decoration: underline;">
-                        {{ .ConfirmationURL }}
+                      <a href="{{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password" target="_blank" rel="noopener noreferrer" style="color: #fbbf24; text-decoration: underline;">
+                        {{ .SiteURL }}/auth/callback?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password
                       </a>
                     </p>
                   </td>
@@ -98,7 +92,6 @@
             </td>
           </tr>
 
-          <!-- Alt Bilgi -->
           <tr>
             <td class="px muted" align="center" style="padding: 20px 20px 0 20px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 19px; color: #6b7280;">
               <a href="https://kesifistanbul.com.tr" style="color: #fbbf24; text-decoration: none;">İstanbul Keşif Rehberi</a> ·
