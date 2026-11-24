@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <meta name="supported-color-schemes" content="dark light">
-<title>Şifre Sıfırlama İsteği | İstanbul Keşif Rehberi</title>
+<title>Şifre Sıfırlama | İstanbul Keşif Rehberi</title>
 <style>
   @media (max-width: 620px) {
     .container { width: 100% !important; }
-    .px { padding-left: 22px !important; padding-right: 22px !important; }
+    .px { padding-left: 20px !important; padding-right: 20px !important; }
     .btn a { display: block !important; text-align: center !important; }
   }
   @media (prefers-color-scheme: light) {
@@ -18,15 +18,14 @@
     .t { color: #111827 !important; }
     .sub { color: #4b5563 !important; }
     .muted { color: #6b7280 !important; }
-    .link-box { background: #f9fafb !important; border-color: #e5e7eb !important; }
+    .code-box { background: #f9fafb !important; border-color: #d1d5db !important; color: #111827 !important; }
     .line { border-color: #e5e7eb !important; }
   }
 </style>
 </head>
 <body class="bg" style="margin: 0; padding: 0; background: #090d16;">
-  <!-- Preheader -->
   <div style="display: none; max-height: 0; overflow: hidden; opacity: 0; color: transparent;">
-    Şifreni {{EXPIRES_MINUTES}} dakika içinde sıfırlayabilirsin. Tek kullanımlık bağlantı. ‌ ‌ ‌ ‌ ‌
+    İstanbul Keşif Rehberi şifre sıfırlama bağlantın ve doğrulama kodun. ‌ ‌ ‌ ‌ ‌
   </div>
 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg" style="background: #090d16;">
@@ -47,76 +46,63 @@
           <tr>
             <td class="card" style="background: #111827; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 18px; overflow: hidden;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                <!-- Üst Vurgu Çizgisi -->
                 <tr>
                   <td style="height: 4px; background: #fbbf24; font-size: 0; line-height: 0;"> </td>
                 </tr>
 
-                <!-- İçerik -->
                 <tr>
                   <td class="px" style="padding: 36px 40px 32px 40px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
                     <h1 class="t" style="margin: 0 0 12px 0; font-size: 23px; line-height: 30px; font-weight: 700; color: #f3f4f6;">
                       Şifreni sıfırla
                     </h1>
 
-                    <p class="sub" style="margin: 0 0 14px 0; font-size: 15px; line-height: 24px; color: #9ca3af;">
-                      Merhaba <strong class="t" style="color: #f3f4f6;">{{NAME}}</strong>,
-                    </p>
-
                     <p class="sub" style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #9ca3af;">
-                      Hesabın için bir şifre sıfırlama isteği aldık. Yeni şifreni belirlemek için aşağıdaki butona tıkla. Bu bağlantı <strong class="t" style="color: #f3f4f6;">{{EXPIRES_MINUTES}} dakika</strong> boyunca geçerli ve yalnızca bir kez kullanılabilir.
+                      Hesabının şifresini yenilemek için aşağıdaki butona tıkla. Bu bağlantıyı sen talep etmediysen bu e-postayı görmezden gelebilirsin.
                     </p>
 
-                    <!-- CTA Buton -->
+                    <!-- Buton -->
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" class="btn" style="margin: 0 0 26px 0;">
                       <tr>
                         <td align="center" bgcolor="#fbbf24" style="border-radius: 12px;">
-                          <a href="{{RESET_URL}}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 13px 28px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 700; color: #090d16; text-decoration: none; border-radius: 12px; background: #fbbf24;">
-                            Yeni Şifre Belirle
+                          <a href="{{ .ConfirmationURL }}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 13px 28px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 700; color: #090d16; text-decoration: none; border-radius: 12px; background: #fbbf24;">
+                            Şifreyi Sıfırla
                           </a>
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- Alternatif Kod -->
+                    <p class="muted" style="margin: 0 0 8px 0; font-size: 13px; line-height: 20px; color: #9ca3af;">
+                      Alternatif olarak, şu kodu gir:
+                    </p>
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 24px 0;">
+                      <tr>
+                        <td class="code-box" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 10px 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 18px; font-weight: 700; letter-spacing: 3px; color: #fbbf24;">
+                          {{ .Token }}
                         </td>
                       </tr>
                     </table>
 
                     <!-- Yedek Bağlantı -->
-                    <p class="muted" style="margin: 0 0 8px 0; font-size: 12px; line-height: 18px; color: #9ca3af;">
-                      Buton çalışmıyorsa aşağıdaki bağlantıyı tarayıcına kopyalayıp yapıştır:
+                    <p class="muted" style="margin: 0 0 6px 0; font-size: 12px; line-height: 18px; color: #6b7280;">
+                      Buton açılmıyorsa bu bağlantıyı tarayıcına yapıştır:
                     </p>
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 24px 0;">
-                      <tr>
-                        <td class="link-box" style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 12px 14px; font-size: 12px; line-height: 18px; word-break: break-all;">
-                          <a href="{{RESET_URL}}" target="_blank" rel="noopener noreferrer" style="color: #fbbf24; text-decoration: underline;">
-                            {{RESET_URL}}
-                          </a>
-                        </td>
-                      </tr>
-                    </table>
-
-                    <!-- Güvenlik Bilgisi -->
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                      <tr>
-                        <td class="line" style="border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 18px;">
-                          <p class="muted" style="margin: 0 0 6px 0; font-size: 12px; line-height: 19px; color: #6b7280;">
-                            <strong class="sub" style="color: #9ca3af;">Bu isteği sen yapmadıysan</strong> bu e-postayı görmezden gelebilirsin; mevcut şifren değişmeyecektir.
-                          </p>
-                          <p class="muted" style="margin: 0; font-size: 12px; line-height: 19px; color: #6b7280;">
-                            İstek bilgisi: {{DEVICE}} · {{IP}}
-                          </p>
-                        </td>
-                      </tr>
-                    </table>
+                    <p style="margin: 0; font-size: 12px; line-height: 18px; word-break: break-all;">
+                      <a href="{{ .ConfirmationURL }}" target="_blank" rel="noopener noreferrer" style="color: #fbbf24; text-decoration: underline;">
+                        {{ .ConfirmationURL }}
+                      </a>
+                    </p>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
 
-          <!-- Footer -->
+          <!-- Alt Bilgi -->
           <tr>
-            <td class="px muted" align="center" style="padding: 22px 20px 0 20px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 19px; color: #6b7280;">
+            <td class="px muted" align="center" style="padding: 20px 20px 0 20px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 19px; color: #6b7280;">
               <a href="https://kesifistanbul.com.tr" style="color: #fbbf24; text-decoration: none;">İstanbul Keşif Rehberi</a> ·
-              <a href="mailto:destek@kesifistanbul.com.tr" style="color: #9ca3af; text-decoration: none;">destek@kesifistanbul.com.tr</a><br>
-              © {{YEAR}} İstanbul Keşif Rehberi
+              <a href="mailto:destek@kesifistanbul.com.tr" style="color: #9ca3af; text-decoration: none;">destek@kesifistanbul.com.tr</a>
             </td>
           </tr>
 

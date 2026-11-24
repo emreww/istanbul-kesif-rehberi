@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <meta name="supported-color-schemes" content="dark light">
-<title>Giriş Doğrulama Kodu | İstanbul Keşif Rehberi</title>
+<title>E-posta Doğrulama | İstanbul Keşif Rehberi</title>
 <style>
   @media (max-width: 620px) {
     .container { width: 100% !important; }
-    .px { padding-left: 22px !important; padding-right: 22px !important; }
-    .code-box { font-size: 26px !important; letter-spacing: 6px !important; padding-left: 18px !important; }
+    .px { padding-left: 20px !important; padding-right: 20px !important; }
+    .btn a { display: block !important; text-align: center !important; }
   }
   @media (prefers-color-scheme: light) {
     .bg { background: #f3f4f6 !important; }
@@ -18,14 +18,14 @@
     .t { color: #111827 !important; }
     .sub { color: #4b5563 !important; }
     .muted { color: #6b7280 !important; }
-    .code-box { background: #fffbeb !important; color: #92400e !important; border-color: #f59e0b !important; }
+    .code-box { background: #f9fafb !important; border-color: #d1d5db !important; color: #111827 !important; }
     .line { border-color: #e5e7eb !important; }
   }
 </style>
 </head>
 <body class="bg" style="margin: 0; padding: 0; background: #090d16;">
   <div style="display: none; max-height: 0; overflow: hidden; opacity: 0; color: transparent;">
-    Giriş kodun {{CODE}} · {{EXPIRES_MINUTES}} dakika geçerli. ‌ ‌ ‌ ‌ ‌
+    İstanbul Keşif Rehberi üyeliğini tamamlamak için e-posta adresini doğrula. ‌ ‌ ‌ ‌ ‌
   </div>
 
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="bg" style="background: #090d16;">
@@ -42,7 +42,7 @@
             </td>
           </tr>
 
-          <!-- Kart -->
+          <!-- Ana Kart -->
           <tr>
             <td class="card" style="background: #111827; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 18px; overflow: hidden;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
@@ -53,33 +53,52 @@
                 <tr>
                   <td class="px" style="padding: 36px 40px 32px 40px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
                     <h1 class="t" style="margin: 0 0 12px 0; font-size: 23px; line-height: 30px; font-weight: 700; color: #f3f4f6;">
-                      Giriş doğrulama kodu
+                      Aramıza hoş geldin!
                     </h1>
 
-                    <p class="sub" style="margin: 0 0 20px 0; font-size: 15px; line-height: 24px; color: #9ca3af;">
-                      Merhaba <strong class="t" style="color: #f3f4f6;">{{NAME}}</strong>, hesabına giriş yapmak için aşağıdaki doğrulama kodunu kullan:
+                    <p class="sub" style="margin: 0 0 24px 0; font-size: 15px; line-height: 24px; color: #9ca3af;">
+                      <strong class="t" style="color: #f3f4f6;">İstanbul Keşif Rehberi</strong> hesabını aktifleştirmek ve şehrin en iyi mekanlarını keşfetmeye başlamak için e-posta adresini onayla.
                     </p>
 
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 22px 0;">
+                    <!-- Buton -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" class="btn" style="margin: 0 0 26px 0;">
                       <tr>
-                        <td align="center" class="code-box" style="background: rgba(251, 191, 36, 0.08); border: 1px dashed rgba(251, 191, 36, 0.45); border-radius: 14px; padding: 20px 14px 20px 24px; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 34px; font-weight: 700; letter-spacing: 10px; color: #fbbf24;">
-                          {{CODE}}
+                        <td align="center" bgcolor="#fbbf24" style="border-radius: 12px;">
+                          <a href="{{ .ConfirmationURL }}" target="_blank" rel="noopener noreferrer" style="display: inline-block; padding: 13px 28px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 700; color: #090d16; text-decoration: none; border-radius: 12px; background: #fbbf24;">
+                            Hesabımı Doğrula
+                          </a>
                         </td>
                       </tr>
                     </table>
 
-                    <p class="sub" style="margin: 0 0 24px 0; font-size: 14px; line-height: 22px; color: #9ca3af;">
-                      Bu kod <strong class="t" style="color: #f3f4f6;">{{EXPIRES_MINUTES}} dakika</strong> boyunca geçerlidir. Güvenliğin için kodu kimseyle paylaşma.
+                    <!-- Alternatif Kod -->
+                    <p class="muted" style="margin: 0 0 8px 0; font-size: 13px; line-height: 20px; color: #9ca3af;">
+                      Alternatif olarak, doğrulama kodunu kullanabilirsin:
+                    </p>
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 0 0 24px 0;">
+                      <tr>
+                        <td class="code-box" style="background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 10px 16px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 18px; font-weight: 700; letter-spacing: 3px; color: #fbbf24;">
+                          {{ .Token }}
+                        </td>
+                      </tr>
+                    </table>
+
+                    <!-- Yedek Bağlantı -->
+                    <p class="muted" style="margin: 0 0 6px 0; font-size: 12px; line-height: 18px; color: #6b7280;">
+                      Buton açılmıyorsa bu bağlantıyı tarayıcına yapıştır:
+                    </p>
+                    <p style="margin: 0 0 20px 0; font-size: 12px; line-height: 18px; word-break: break-all;">
+                      <a href="{{ .ConfirmationURL }}" target="_blank" rel="noopener noreferrer" style="color: #fbbf24; text-decoration: underline;">
+                        {{ .ConfirmationURL }}
+                      </a>
                     </p>
 
+                    <!-- Güvenlik Notu -->
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                       <tr>
-                        <td class="line" style="border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 18px;">
-                          <p class="muted" style="margin: 0 0 6px 0; font-size: 12px; line-height: 19px; color: #6b7280;">
-                            Bu giriş isteğini sen başlatmadıysan bu e-postayı dikkate alma ve hesap güvenliğini kontrol et.
-                          </p>
-                          <p class="muted" style="margin: 0; font-size: 12px; line-height: 19px; color: #6b7280;">
-                            Cihaz / IP: {{DEVICE}} · {{IP}}
+                        <td class="line" style="border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 16px;">
+                          <p class="muted" style="margin: 0; font-size: 12px; line-height: 18px; color: #6b7280;">
+                            Bu kaydı sen oluşturmadıysan bu e-postayı güvenle görmezden gelebilirsin.
                           </p>
                         </td>
                       </tr>
@@ -90,12 +109,11 @@
             </td>
           </tr>
 
-          <!-- Footer -->
+          <!-- Alt Bilgi -->
           <tr>
-            <td class="px muted" align="center" style="padding: 22px 20px 0 20px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 19px; color: #6b7280;">
+            <td class="px muted" align="center" style="padding: 20px 20px 0 20px; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 12px; line-height: 19px; color: #6b7280;">
               <a href="https://kesifistanbul.com.tr" style="color: #fbbf24; text-decoration: none;">İstanbul Keşif Rehberi</a> ·
-              <a href="mailto:destek@kesifistanbul.com.tr" style="color: #9ca3af; text-decoration: none;">destek@kesifistanbul.com.tr</a><br>
-              © {{YEAR}} İstanbul Keşif Rehberi
+              <a href="mailto:destek@kesifistanbul.com.tr" style="color: #9ca3af; text-decoration: none;">destek@kesifistanbul.com.tr</a>
             </td>
           </tr>
 
