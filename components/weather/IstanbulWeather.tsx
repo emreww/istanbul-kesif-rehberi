@@ -200,7 +200,7 @@ export default function IstanbulWeather() {
         <div className="shrink-0">
           <Link
             href={`/kesfet?ozellikler=${info.filterTag}`}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary-500/20 border border-primary-500/40 text-primary-200 text-xs font-bold hover:bg-primary-500 hover:text-white transition shadow-md shadow-primary-500/10"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary-500/10 border border-primary-500/40 text-primary-200 text-xs font-bold hover:bg-primary-500/20 hover:text-white transition shadow-md shadow-primary-500/1"
           >
             {info.filterLabel} →
           </Link>
