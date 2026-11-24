@@ -175,7 +175,7 @@
     cursor: pointer;
     transition: background-color 250ms var(--ease-soft), border-color 250ms var(--ease-soft), color 250ms var(--ease-soft), text-decoration-color 250ms var(--ease-soft), box-shadow 250ms var(--ease-soft), transform 250ms var(--ease-soft);
   }
-  .btn-primary { background: var(--color-primary-500); color: var(--color-ink-950); }
+  .btn-primary { background: var(--color-gold-400); color: var(--color-ink-950); }
   .btn-primary:hover { background: var(--color-primary-400); }
   .btn-secondary {
     background: transparent;

@@ -1,4 +1,4 @@
-'use client'
+/*'use client'
 import { motion } from 'framer-motion'
 
 interface LoadingSpinnerProps {
@@ -8,9 +8,9 @@ interface LoadingSpinnerProps {
 
 export default function LoadingSpinner({ size = 'md', className = '' }: LoadingSpinnerProps) {
   const sizeClasses = {
-    sm: 'h-6 w-6 border-2',
-    md: 'h-12 w-12 border-2',
-    lg: 'h-16 w-16 border-4',
+    sm: 'h-5 w-5 border-2',
+    md: 'h-6 w-6 border-2',
+    lg: 'h-14 w-14 border-4',
   }
 
   return (
@@ -20,4 +20,12 @@ export default function LoadingSpinner({ size = 'md', className = '' }: LoadingS
       />
     </div>
   )
+}*/
+export default function LoadingSpinner(){
+  return (
+    <div className="fixed inset-2 z-60 flex items-center justify-center bg-gray-900/95 backdrop-blur-sm">
+      <div className="animate-spin rounded-full h-15 w-15 border-t-2 border-b-2 border-primary-500"></div>
+    </div>
+  )
 }
+
