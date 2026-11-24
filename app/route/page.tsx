@@ -22,7 +22,13 @@ import {
   FolderOpen,
   ArrowRight,
   Loader2,
+  Flag,
+  TriangleAlert,
 } from 'lucide-react'
+
+/* ------------------------------------------------------------------ */
+/* Tipler                                                              */
+/* ------------------------------------------------------------------ */
 
 interface Place {
   id: string
@@ -53,6 +59,27 @@ interface RouteStop {
 }
 
 type TravelMode = 'driving' | 'walking' | 'transit'
+type LatLng = [number, number]
+
+interface RouteLeg {
+  distanceKm: number
+  durationMin: number
+  startIdx: number // path içindeki başlangıç indeksi
+  endIdx: number // path içindeki bitiş indeksi
+}
+
+interface RouteResult {
+  path: LatLng[]
+  legs: RouteLeg[]
+  distanceKm: number
+  durationMin: number
+  approximate: boolean // true: yol verisi alınamadı, kuş uçuşu çizildi
+  mode: TravelMode
+}
+
+/* ------------------------------------------------------------------ */
+/* Sabitler                                                            */
+/* ------------------------------------------------------------------ */
 
 const ISTANBUL_DISTRICTS = [
   'Adalar', 'Arnavutköy', 'Ataşehir', 'Avcılar', 'Bağcılar', 'Bahçelievler',
@@ -67,6 +94,76 @@ const ISTANBUL_DISTRICTS = [
 const inputClass =
   'w-full rounded-xl bg-slate-900/90 border border-slate-800 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-400/70 focus:ring-2 focus:ring-amber-400/15 transition-all'
 
+// Rota servisleri. Kendi OSRM sunucunuz varsa .env ile değiştirin:
+// NEXT_PUBLIC_ROUTING_CAR_URL=https://osrm.siteniz.com
+// NEXT_PUBLIC_ROUTING_FOOT_URL=https://osrm-foot.siteniz.com
+// Not: herkese açık demo sunucuların kullanım limiti vardır; yoğun trafikte kendi sunucunuzu kullanın.
+const ROUTING_BASE: Record<TravelMode, string> = {
+  driving: process.env.NEXT_PUBLIC_ROUTING_CAR_URL ?? 'https://routing.openstreetmap.de/routed-car',
+  walking: process.env.NEXT_PUBLIC_ROUTING_FOOT_URL ?? 'https://routing.openstreetmap.de/routed-foot',
+  // OSRM toplu taşıma desteklemez: araç geometrisi + tahmini süre kullanılır
+  transit: process.env.NEXT_PUBLIC_ROUTING_CAR_URL ?? 'https://routing.openstreetmap.de/routed-car',
+}
+
+const MODE_META: Record<TravelMode, { label: string; emoji: string }> = {
+  driving: { label: 'Araç', emoji: '🚗' },
+  walking: { label: 'Yürüyüş', emoji: '🚶' },
+  transit: { label: 'Toplu T.', emoji: '🚆' },
+}
+
+const ROUTE_THEME = {
+  main: '#1A73E8',
+  casing: '#0B3D91',
+  approx: '#64748b',
+}
+
+const ROUTE_CSS = `
+@keyframes route-flow-anim { to { stroke-dashoffset: -32; } }
+.route-flow { animation: route-flow-anim 1.4s linear infinite; }
+@keyframes user-ping-anim { 75%, 100% { transform: scale(2.4); opacity: 0; } }
+.user-ping-ring { animation: user-ping-anim 1.6s cubic-bezier(0, 0, 0.2, 1) infinite; }
+.route-leg-label { background: transparent !important; border: none !important; pointer-events: none; }
+.route-leg-label > div {
+  display: inline-block;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  background: rgba(7, 11, 20, 0.92);
+  color: #e2e8f0;
+  border: 1px solid rgba(26, 115, 232, 0.65);
+  font: 700 11px/1.2 system-ui, sans-serif;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+.route-leg-label.is-approx > div { border-color: rgba(148, 163, 184, 0.7); color: #cbd5e1; }
+.route-arrow { background: transparent !important; border: none !important; pointer-events: none; }
+.route-tooltip {
+  background: #070b14; color: #f1f5f9; border: 1px solid #1e293b;
+  border-radius: 8px; font: 600 12px system-ui, sans-serif; box-shadow: 0 4px 14px rgba(0,0,0,.4);
+}
+.route-tooltip::before { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .route-flow, .user-ping-ring { animation: none; }
+}
+`
+
+/* ------------------------------------------------------------------ */
+/* Yardımcı fonksiyonlar                                               */
+/* ------------------------------------------------------------------ */
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => {
+    const map: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }
+    return map[c]
+  })
+}
+
 function extractDistrict(address?: string): string {
   if (!address) return 'Diğer'
   const lower = address.toLocaleLowerCase('tr-TR')
@@ -77,6 +174,139 @@ function extractDistrict(address?: string): string {
   }
   return 'Diğer'
 }
+
+// Haversine mesafe (km)
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371
+  const dLat = ((lat2 - lat1) * Math.PI) / 180
+  const dLon = ((lon2 - lon1) * Math.PI) / 180
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2)
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+function haversineKm(a: LatLng, b: LatLng): number {
+  return calculateDistance(a[0], a[1], b[0], b[1])
+}
+
+function getBearingDeg([lat1, lng1]: LatLng, [lat2, lng2]: LatLng): number {
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const toDeg = (r: number) => (r * 180) / Math.PI
+  const dLng = toRad(lng2 - lng1)
+  const y = Math.sin(dLng) * Math.cos(toRad(lat2))
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng)
+  return (toDeg(Math.atan2(y, x)) + 360) % 360
+}
+
+function pathLengthKm(path: LatLng[]): number {
+  let total = 0
+  for (let i = 1; i < path.length; i++) total += haversineKm(path[i - 1], path[i])
+  return total
+}
+
+// Yol boyunca her `spacingKm` mesafede (ilk nokta spacing/2'de) konum + yön üretir.
+function pointsAlongPath(path: LatLng[], spacingKm: number) {
+  const out: { pos: LatLng; bearing: number; at: number }[] = []
+  if (path.length < 2 || spacingKm <= 0) return out
+
+  let next = spacingKm / 2
+  let acc = 0
+  for (let i = 1; i < path.length; i++) {
+    const segLen = haversineKm(path[i - 1], path[i])
+    if (segLen === 0) continue
+    while (acc + segLen >= next) {
+      const t = (next - acc) / segLen
+      out.push({
+        pos: [
+          path[i - 1][0] + (path[i][0] - path[i - 1][0]) * t,
+          path[i - 1][1] + (path[i][1] - path[i - 1][1]) * t,
+        ],
+        bearing: getBearingDeg(path[i - 1], path[i]),
+        at: next,
+      })
+      next += spacingKm
+    }
+    acc += segLen
+  }
+  return out
+}
+
+// Rota geometrisi üzerinde her durağa en yakın indeksi (ileri yönlü) bulur.
+function snapIndices(path: LatLng[], points: LatLng[]): number[] {
+  const idx: number[] = []
+  let from = 0
+  points.forEach((p, k) => {
+    if (k === 0) {
+      idx.push(0)
+      return
+    }
+    if (k === points.length - 1) {
+      idx.push(path.length - 1)
+      return
+    }
+    let best = from
+    let bestDist = Infinity
+    for (let i = from; i < path.length; i++) {
+      const d = (path[i][0] - p[0]) ** 2 + (path[i][1] - p[1]) ** 2
+      if (d < bestDist) {
+        bestDist = d
+        best = i
+      }
+    }
+    idx.push(best)
+    from = best
+  })
+  return idx
+}
+
+function estimateDurationMinutes(distanceKm: number, mode: TravelMode, osrmDurationSec?: number): number {
+  if (mode !== 'transit' && typeof osrmDurationSec === 'number') {
+    return Math.max(1, Math.round(osrmDurationSec / 60))
+  }
+  if (mode === 'walking') return Math.max(1, Math.round((distanceKm / 4.8) * 60))
+  if (mode === 'driving') return Math.max(1, Math.round((distanceKm / 30) * 60))
+  return Math.max(2, Math.round((distanceKm / 20) * 60 + 6))
+}
+
+function formatDuration(min: number): string {
+  if (min >= 60) return `${Math.floor(min / 60)} sa ${min % 60} dk`
+  return `${min} dk`
+}
+
+function formatDistance(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`
+}
+
+function buildFallbackRoute(points: LatLng[], mode: TravelMode): RouteResult {
+  const legs: RouteLeg[] = []
+  for (let i = 0; i < points.length - 1; i++) {
+    const km = haversineKm(points[i], points[i + 1])
+    legs.push({
+      distanceKm: km,
+      durationMin: estimateDurationMinutes(km, mode),
+      startIdx: i,
+      endIdx: i + 1,
+    })
+  }
+  return {
+    path: points,
+    legs,
+    distanceKm: legs.reduce((s, l) => s + l.distanceKm, 0),
+    durationMin: legs.reduce((s, l) => s + l.durationMin, 0),
+    approximate: true,
+    mode,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Sayfa                                                               */
+/* ------------------------------------------------------------------ */
 
 export default function RoutePlannerPage() {
   const supabase = useMemo(() => createClient(), [])
@@ -96,17 +326,22 @@ export default function RoutePlannerPage() {
   const [leafletLoaded, setLeafletLoaded] = useState(false)
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [isLocating, setIsLocating] = useState(false)
+  const [startFromUser, setStartFromUser] = useState(false)
   const [isRoutingLoading, setIsRoutingLoading] = useState(false)
-  const [realRouteStats, setRealRouteStats] = useState<{ distanceKm: number; durationMin: number } | null>(null)
+  const [routeResult, setRouteResult] = useState<RouteResult | null>(null)
 
   // Leaflet refleri
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
-  const markersRef = useRef<any[]>([])
-  const clusterGroupRef = useRef<any>(null)
   const userMarkerRef = useRef<any>(null)
-  const polylineRef = useRef<any>(null)
   const leafletLibRef = useRef<any>(null)
+  const routeRendererRef = useRef<any>(null)
+  const routeCacheRef = useRef<Map<string, RouteResult>>(new Map())
+  const sidebarOpenRef = useRef(isSidebarOpen)
+
+  useEffect(() => {
+    sidebarOpenRef.current = isSidebarOpen
+  }, [isSidebarOpen])
 
   // Mobil ekran tespiti
   useEffect(() => {
@@ -123,32 +358,6 @@ export default function RoutePlannerPage() {
     }, 320)
     return () => clearTimeout(timer)
   }, [isSidebarOpen, leafletLoaded])
-
-  // Haversine mesafe hesabı (km)
-  const calculateDistance = useCallback((lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371
-    const dLat = ((lat2 - lat1) * Math.PI) / 180
-    const dLon = ((lon2 - lon1) * Math.PI) / 180
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos((lat1 * Math.PI) / 180) *
-        Math.cos((lat2 * Math.PI) / 180) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2)
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-    return R * c
-  }, [])
-
-  // Seyahat moduna göre tahmini süre (dakika)
-  const estimateDurationMinutes = useCallback((distanceKm: number, mode: TravelMode, osrmDurationSec?: number) => {
-    if (mode === 'driving' && typeof osrmDurationSec === 'number') {
-      return Math.max(1, Math.round(osrmDurationSec / 60))
-    }
-    if (mode === 'walking') {
-      return Math.max(1, Math.round((distanceKm / 4.8) * 60))
-    }
-    return Math.max(2, Math.round((distanceKm / 20) * 60 + 6))
-  }, [])
 
   // Kullanıcı Konumu
   const handleGetUserLocation = useCallback(() => {
@@ -189,6 +398,11 @@ export default function RoutePlannerPage() {
       )
     }
   }, [])
+
+  // Konum yoksa "konumdan başla" kapanır
+  useEffect(() => {
+    if (!userLocation) setStartFromUser(false)
+  }, [userLocation])
 
   // Durak Ekle
   const handleAddStop = useCallback((place: Place) => {
@@ -351,15 +565,30 @@ export default function RoutePlannerPage() {
         (p.address && p.address.toLowerCase().includes(q)) ||
         (p.district && p.district.toLowerCase().includes(q))
     )
-  }, [categoryRawPlaces, selectedCategoryId, searchQuery, userLocation, calculateDistance])
+  }, [categoryRawPlaces, selectedCategoryId, searchQuery, userLocation])
+
+  // Rota noktaları: (opsiyonel) kullanıcı konumu + duraklar
+  const routePoints = useMemo<LatLng[]>(() => {
+    const pts: LatLng[] = []
+    if (startFromUser && userLocation) pts.push([userLocation.lat, userLocation.lng])
+    selectedStops.forEach((s) => pts.push([s.place.latitude, s.place.longitude]))
+    return pts
+  }, [selectedStops, startFromUser, userLocation])
+
+  // Sıra değişimi cluster'ı etkilemesin diye sıralanmış id anahtarı
+  const selectedKey = useMemo(
+    () => selectedStops.map((s) => s.place.id).sort().join(','),
+    [selectedStops]
+  )
 
   // En yakın komşu algoritması ile durak sıralama
   const handleSortByProximity = useCallback(() => {
     if (selectedStops.length <= 1) return
 
-    const startPoint = userLocation
-      ? userLocation
-      : { lat: selectedStops[0].place.latitude, lng: selectedStops[0].place.longitude }
+    const startPoint =
+      startFromUser && userLocation
+        ? userLocation
+        : { lat: selectedStops[0].place.latitude, lng: selectedStops[0].place.longitude }
 
     const remaining = [...selectedStops]
     const sorted: RouteStop[] = []
@@ -384,9 +613,12 @@ export default function RoutePlannerPage() {
     }
 
     setSelectedStops(sorted.map((item, idx) => ({ ...item, order: idx + 1 })))
-  }, [selectedStops, userLocation, calculateDistance])
+  }, [selectedStops, userLocation, startFromUser])
 
-  // Leaflet Başlatma
+  /* ---------------------------------------------------------------- */
+  /* Leaflet başlatma                                                  */
+  /* ---------------------------------------------------------------- */
+
   useEffect(() => {
     let isMounted = true
 
@@ -422,6 +654,13 @@ export default function RoutePlannerPage() {
 
       L.control.zoom({ position: 'bottomright' }).addTo(map)
 
+      // Rota için ayrı katman (pane) + SVG renderer:
+      // canvas yerine SVG kullanıldığı için çizgi animasyonu (CSS) ve tooltip çalışır,
+      // pane sayesinde rota her zaman pinlerin altında, karoların üstünde kalır.
+      map.createPane('routePane')
+      map.getPane('routePane').style.zIndex = '450'
+      routeRendererRef.current = L.svg({ pane: 'routePane', padding: 0.5 })
+
       setTimeout(() => {
         map.invalidateSize?.()
       }, 150)
@@ -441,7 +680,10 @@ export default function RoutePlannerPage() {
     }
   }, [])
 
-  // Kullanıcı Konumu Pini
+  /* ---------------------------------------------------------------- */
+  /* Kullanıcı konumu pini                                             */
+  /* ---------------------------------------------------------------- */
+
   useEffect(() => {
     const L = leafletLibRef.current
     const map = mapInstanceRef.current
@@ -456,13 +698,12 @@ export default function RoutePlannerPage() {
       className: 'custom-user-location-pin',
       html: `
         <div style="position: relative; width: 22px; height: 22px;">
-          <div style="
+          <div class="user-ping-ring" style="
             position: absolute;
             width: 22px;
             height: 22px;
             background: rgba(59, 130, 246, 0.35);
             border-radius: 50%;
-            animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
           "></div>
           <div style="
             position: relative;
@@ -495,159 +736,164 @@ export default function RoutePlannerPage() {
     userMarkerRef.current = marker
   }, [userLocation, leafletLoaded])
 
-  // Marker, Cluster ve Rota Güncelleme
+  /* ---------------------------------------------------------------- */
+  /* Kategori mekanları (cluster)                                      */
+  /* ---------------------------------------------------------------- */
+
+  useEffect(() => {
+    const L = leafletLibRef.current
+    const map = mapInstanceRef.current
+    if (!L || !map || !leafletLoaded) return
+    if (!selectedCategoryId || categoryPlaces.length === 0) return
+
+    const selectedPlaceIds = new Set(selectedKey ? selectedKey.split(',') : [])
+
+    const markersCluster = L.markerClusterGroup({
+      chunkedLoading: true,
+      removeOutsideVisibleBounds: true,
+      animate: true,
+      animateAddingMarkers: false,
+      maxClusterRadius: 45,
+      disableClusteringAtZoom: 16,
+      spiderfyOnMaxZoom: true,
+      showCoverageOnHover: false,
+      iconCreateFunction: (cluster: any) => {
+        const count = cluster.getChildCount()
+        let cClass = 'cluster-small'
+        let size = 36
+        if (count > 25) {
+          cClass = 'cluster-medium'
+          size = 42
+        }
+        if (count > 100) {
+          cClass = 'cluster-large'
+          size = 48
+        }
+
+        return L.divIcon({
+          html: `<div class="cluster-inner ${cClass}"><span>${count}</span></div>`,
+          className: 'custom-cluster-icon',
+          iconSize: L.point(size, size),
+        })
+      },
+    })
+
+    const unselectedMarkersList: any[] = []
+
+    categoryPlaces.forEach((place) => {
+      if (selectedPlaceIds.has(place.id)) return
+
+      const smallIcon = L.divIcon({
+        className: 'custom-unselected-pin',
+        html: `
+          <div style="
+            width: 28px;
+            height: 28px;
+            border-radius: 9999px;
+            background: #09090b;
+            border: 2.5px solid #ef4444;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55), 0 0 8px rgba(239, 68, 68, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            line-height: 1;
+            cursor: pointer;
+          ">📍</div>
+        `,
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      })
+
+      const marker = L.marker([place.latitude, place.longitude], { icon: smallIcon })
+
+      const distText =
+        typeof place.distanceFromUser === 'number'
+          ? `<span style="color:#d97706; font-weight:600;"> • ${place.distanceFromUser.toFixed(1)} km</span>`
+          : ''
+
+      marker.bindPopup(`
+        <div style="font-family: sans-serif; color: #0f172a; padding: 4px; min-width: 175px;">
+          <h4 style="margin:0 0 4px 0; font-size:14px; font-weight:700;">${escapeHtml(place.name)}</h4>
+          <p style="margin:0 0 8px 0; font-size:12px; color:#64748b;">${escapeHtml(place.address || '')}${distText} • ★ ${Number(place.average_rating).toFixed(1)}</p>
+          <button data-place-id="${escapeHtml(place.id)}" class="js-add-stop-btn" style="
+            background: #f59e0b;
+            color: #090d16;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            width: 100%;
+          ">+ Rotaya Ekle</button>
+        </div>
+      `)
+
+      marker.on('popupopen', (e: any) => {
+        const popupEl = e.popup?.getElement()
+        const btn = popupEl?.querySelector('.js-add-stop-btn') as HTMLButtonElement | null
+        if (btn) {
+          btn.onclick = () => {
+            handleAddStop(place)
+            map.closePopup()
+          }
+        }
+      })
+
+      unselectedMarkersList.push(marker)
+    })
+
+    if (unselectedMarkersList.length > 0) {
+      markersCluster.addLayers(unselectedMarkersList)
+      map.addLayer(markersCluster)
+
+      if (!selectedKey) {
+        const bounds = markersCluster.getBounds()
+        if (bounds.isValid()) {
+          map.fitBounds(bounds, { padding: [45, 45], maxZoom: 14 })
+        }
+      }
+    }
+
+    return () => {
+      try {
+        map.removeLayer(markersCluster)
+      } catch {
+        /* harita zaten kaldırılmış olabilir */
+      }
+    }
+  }, [categoryPlaces, selectedCategoryId, selectedKey, leafletLoaded, handleAddStop])
+
+  /* ---------------------------------------------------------------- */
+  /* Durak pinleri                                                     */
+  /* ---------------------------------------------------------------- */
+
   useEffect(() => {
     const L = leafletLibRef.current
     const map = mapInstanceRef.current
     if (!L || !map || !leafletLoaded) return
 
-    markersRef.current.forEach((m) => map.removeLayer(m))
-    markersRef.current = []
-
-    if (clusterGroupRef.current) {
-      map.removeLayer(clusterGroupRef.current)
-      clusterGroupRef.current = null
-    }
-
-    if (polylineRef.current) {
-      map.removeLayer(polylineRef.current)
-      polylineRef.current = null
-    }
-
-    const selectedPlaceIds = new Set(selectedStops.map((s) => s.place.id))
-
-    if (selectedCategoryId && categoryPlaces.length > 0) {
-      const markersCluster = L.markerClusterGroup({
-        chunkedLoading: true,
-        removeOutsideVisibleBounds: true,
-        animate: true,
-        animateAddingMarkers: false,
-        maxClusterRadius: 45,
-        disableClusteringAtZoom: 16,
-        spiderfyOnMaxZoom: true,
-        showCoverageOnHover: false,
-        iconCreateFunction: (cluster: any) => {
-          const count = cluster.getChildCount()
-          let cClass = 'cluster-small'
-          let size = 36
-          if (count > 25) {
-            cClass = 'cluster-medium'
-            size = 42
-          }
-          if (count > 100) {
-            cClass = 'cluster-large'
-            size = 48
-          }
-
-          return L.divIcon({
-            html: `<div class="cluster-inner ${cClass}"><span>${count}</span></div>`,
-            className: 'custom-cluster-icon',
-            iconSize: L.point(size, size),
-          })
-        },
-      })
-
-      const unselectedMarkersList: any[] = []
-
-      categoryPlaces.forEach((place) => {
-        if (selectedPlaceIds.has(place.id)) return
-
-        const smallIcon = L.divIcon({
-          className: 'custom-unselected-pin',
-          html: `
-            <div style="
-              width: 28px;
-              height: 28px;
-              border-radius: 9999px;
-              background: #09090b;
-              border: 2.5px solid #ef4444;
-              box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55), 0 0 8px rgba(239, 68, 68, 0.35);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 13px;
-              line-height: 1;
-              cursor: pointer;
-            ">📍</div>
-          `,
-          iconSize: [28, 28],
-          iconAnchor: [14, 14],
-        })
-
-        const marker = L.marker([place.latitude, place.longitude], { icon: smallIcon })
-
-        const distText =
-          typeof place.distanceFromUser === 'number'
-            ? `<span style="color:#d97706; font-weight:600;"> • ${place.distanceFromUser.toFixed(1)} km</span>`
-            : ''
-
-        marker.bindPopup(`
-          <div style="font-family: sans-serif; color: #0f172a; padding: 4px; min-width: 175px;">
-            <h4 style="margin:0 0 4px 0; font-size:14px; font-weight:700;">${place.name}</h4>
-            <p style="margin:0 0 8px 0; font-size:12px; color:#64748b;">${place.address || ''}${distText} • ★ ${Number(place.average_rating).toFixed(1)}</p>
-            <button data-place-id="${place.id}" class="js-add-stop-btn" style="
-              background: #f59e0b;
-              color: #090d16;
-              border: none;
-              padding: 6px 10px;
-              border-radius: 8px;
-              font-size: 11px;
-              font-weight: 700;
-              cursor: pointer;
-              width: 100%;
-            ">+ Rotaya Ekle</button>
-          </div>
-        `)
-
-        marker.on('popupopen', (e: any) => {
-          const popupEl = e.popup?.getElement()
-          const btn = popupEl?.querySelector('.js-add-stop-btn') as HTMLButtonElement | null
-          if (btn) {
-            btn.onclick = () => {
-              handleAddStop(place)
-              map.closePopup()
-            }
-          }
-        })
-
-        unselectedMarkersList.push(marker)
-      })
-
-      if (unselectedMarkersList.length > 0) {
-        markersCluster.addLayers(unselectedMarkersList)
-        map.addLayer(markersCluster)
-        clusterGroupRef.current = markersCluster
-
-        if (selectedStops.length === 0) {
-          const bounds = markersCluster.getBounds()
-          if (bounds.isValid()) {
-            map.fitBounds(bounds, { padding: [45, 45], maxZoom: 14 })
-          }
-        }
-      }
-    }
-
-    const routeCoords: [number, number][] = []
+    const layer = L.layerGroup()
 
     selectedStops.forEach((stop, idx) => {
-      routeCoords.push([stop.place.latitude, stop.place.longitude])
-
+      const active = activeStopIndex === idx
       const stopIcon = L.divIcon({
         className: 'custom-route-pin',
         html: `
           <div style="
             position: relative;
-            background: linear-gradient(135deg, #fbbf24, #d97706);
+            background: ${active ? 'linear-gradient(135deg, #ffffff, #fde68a)' : 'linear-gradient(135deg, #fbbf24, #d97706)'};
             color: #090d16;
             width: 32px;
             height: 32px;
             border-radius: 50% 50% 50% 0;
-            transform: rotate(-45deg);
+            transform: rotate(-45deg) scale(${active ? 1.18 : 1});
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: 0 4px 12px rgba(245, 158, 11, 0.45);
-            border: 2px solid #ffffff;
+            box-shadow: 0 4px 12px rgba(245, 158, 11, ${active ? 0.8 : 0.45});
+            border: 2px solid ${active ? '#f59e0b' : '#ffffff'};
             cursor: pointer;
           ">
             <span style="transform: rotate(45deg); font-weight: 800; font-size: 13px;">${idx + 1}</span>
@@ -661,88 +907,288 @@ export default function RoutePlannerPage() {
       const marker = L.marker([stop.place.latitude, stop.place.longitude], {
         icon: stopIcon,
         zIndexOffset: 1000 + idx,
-      }).addTo(map)
+        title: stop.place.name,
+      })
 
       marker.bindPopup(`
         <div style="font-family: sans-serif; color: #0f172a; padding: 4px;">
           <div style="font-size: 10px; font-weight: 800; color: #d97706; text-transform: uppercase;">DURAK #${idx + 1}</div>
-          <h4 style="margin:2px 0 4px 0; font-size:14px; font-weight:700;">${stop.place.name}</h4>
-          <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${stop.place.address || ''}</p>
+          <h4 style="margin:2px 0 4px 0; font-size:14px; font-weight:700;">${escapeHtml(stop.place.name)}</h4>
+          <p style="margin:0 0 6px 0; font-size:12px; color:#64748b;">${escapeHtml(stop.place.address || '')}</p>
         </div>
       `)
 
-      markersRef.current.push(marker)
+      marker.on('click', () => setActiveStopIndex(idx))
+      marker.addTo(layer)
     })
 
-    let isCancelled = false
-
-    const applyPolyline = (path: [number, number][], distanceKm: number, durationMin: number) => {
-      const polyline = L.polyline(path, {
-        color: '#fbbf24',
-        weight: travelMode === 'driving' ? 6 : 5,
-        opacity: 0.92,
-        dashArray: travelMode === 'walking' ? '8, 8' : travelMode === 'transit' ? '12, 6' : undefined,
-        lineCap: 'round',
-        lineJoin: 'round',
-      }).addTo(map)
-
-      polylineRef.current = polyline
-      setRealRouteStats({ distanceKm, durationMin })
-      map.fitBounds(polyline.getBounds(), { padding: [40, 40] })
-    }
-
-    const fallbackDirectPolyline = (coords: [number, number][]) => {
-      let totalKm = 0
-      for (let i = 0; i < coords.length - 1; i++) {
-        totalKm += calculateDistance(coords[i][0], coords[i][1], coords[i + 1][0], coords[i + 1][1])
-      }
-      const roundedKm = Number(totalKm.toFixed(1))
-      applyPolyline(coords, roundedKm, estimateDurationMinutes(roundedKm, travelMode))
-    }
-
-    if (routeCoords.length >= 2) {
-      setIsRoutingLoading(true)
-
-      const osrmProfile = travelMode === 'walking' ? 'foot' : 'driving'
-      const coordsQuery = routeCoords.map(([lat, lng]) => `${lng},${lat}`).join(';')
-      const osrmUrl = `https://router.project-osrm.org/route/v1/${osrmProfile}/${coordsQuery}?overview=full&geometries=geojson`
-
-      fetch(osrmUrl)
-        .then((res) => res.json())
-        .then((data) => {
-          if (isCancelled) return
-
-          if (data && data.routes && data.routes[0]) {
-            const routeData = data.routes[0]
-            const path: [number, number][] = routeData.geometry.coordinates.map(
-              (c: [number, number]) => [c[1], c[0]]
-            )
-            const distKm = Number((routeData.distance / 1000).toFixed(1))
-            const durMin = estimateDurationMinutes(distKm, travelMode, routeData.duration)
-            applyPolyline(path, distKm, durMin)
-          } else {
-            fallbackDirectPolyline(routeCoords)
-          }
-        })
-        .catch(() => {
-          if (!isCancelled) fallbackDirectPolyline(routeCoords)
-        })
-        .finally(() => {
-          if (!isCancelled) setIsRoutingLoading(false)
-        })
-    } else if (routeCoords.length === 1) {
-      setRealRouteStats(null)
-      setIsRoutingLoading(false)
-      map.setView(routeCoords[0], 14, { animate: true })
-    } else {
-      setRealRouteStats(null)
-      setIsRoutingLoading(false)
-    }
+    layer.addTo(map)
 
     return () => {
-      isCancelled = true
+      try {
+        map.removeLayer(layer)
+      } catch {
+        /* noop */
+      }
     }
-  }, [categoryPlaces, selectedCategoryId, selectedStops, travelMode, leafletLoaded, handleAddStop, calculateDistance, estimateDurationMinutes])
+  }, [selectedStops, activeStopIndex, leafletLoaded])
+
+  // Tek durak eklenince o noktaya odaklan
+  useEffect(() => {
+    const map = mapInstanceRef.current
+    if (!map || !leafletLoaded || selectedStops.length !== 1) return
+    const p = selectedStops[0].place
+    map.setView([p.latitude, p.longitude], Math.max(map.getZoom(), 14), { animate: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStops.length, leafletLoaded])
+
+  /* ---------------------------------------------------------------- */
+  /* Rota verisi (OSRM) — debounce + iptal + önbellek + zaman aşımı    */
+  /* ---------------------------------------------------------------- */
+
+  useEffect(() => {
+    if (routePoints.length < 2) {
+      setRouteResult(null)
+      setIsRoutingLoading(false)
+      return
+    }
+
+    const key = `${travelMode}|${routePoints.map((p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`).join(';')}`
+    const cached = routeCacheRef.current.get(key)
+    if (cached) {
+      setRouteResult(cached)
+      setIsRoutingLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+    setIsRoutingLoading(true)
+
+    const debounceId = setTimeout(async () => {
+      timeoutId = setTimeout(() => controller.abort(), 9000)
+      try {
+        const coordsQuery = routePoints.map(([lat, lng]) => `${lng},${lat}`).join(';')
+        const url = `${ROUTING_BASE[travelMode]}/route/v1/driving/${coordsQuery}?overview=full&geometries=geojson&steps=false`
+        const res = await fetch(url, { signal: controller.signal })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+        const data = await res.json()
+        const route = data?.routes?.[0]
+        if (data?.code !== 'Ok' || !route) throw new Error('Rota bulunamadı')
+
+        const path: LatLng[] = route.geometry.coordinates.map((c: [number, number]) => [c[1], c[0]])
+
+        // Durakların yol üzerindeki (snap edilmiş) konumları → bacak (leg) sınırları
+        const snapped: LatLng[] =
+          Array.isArray(data.waypoints) && data.waypoints.length === routePoints.length
+            ? data.waypoints.map((w: any) => [w.location[1], w.location[0]] as LatLng)
+            : routePoints
+        const idx = snapIndices(path, snapped)
+
+        const legs: RouteLeg[] = (route.legs ?? []).map((leg: any, i: number) => {
+          const km = leg.distance / 1000
+          return {
+            distanceKm: km,
+            durationMin: estimateDurationMinutes(km, travelMode, leg.duration),
+            startIdx: idx[i],
+            endIdx: idx[i + 1],
+          }
+        })
+
+        const result: RouteResult = {
+          path,
+          legs,
+          distanceKm: route.distance / 1000,
+          durationMin: legs.reduce((s, l) => s + l.durationMin, 0),
+          approximate: false,
+          mode: travelMode,
+        }
+
+        if (cancelled) return
+        routeCacheRef.current.set(key, result)
+        setRouteResult(result)
+      } catch (err) {
+        if (cancelled) return
+        console.warn('Rota servisine ulaşılamadı, kuş uçuşu gösteriliyor:', err)
+        setRouteResult(buildFallbackRoute(routePoints, travelMode))
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId)
+        if (!cancelled) setIsRoutingLoading(false)
+      }
+    }, 350)
+
+    return () => {
+      cancelled = true
+      clearTimeout(debounceId)
+      if (timeoutId) clearTimeout(timeoutId)
+      controller.abort()
+    }
+  }, [routePoints, travelMode])
+
+  /* ---------------------------------------------------------------- */
+  /* Rota çizimi                                                       */
+  /* ---------------------------------------------------------------- */
+
+  useEffect(() => {
+    const L = leafletLibRef.current
+    const map = mapInstanceRef.current
+    if (!L || !map || !leafletLoaded || !routeResult || routeResult.path.length < 2) return
+
+    const { path, legs, mode, approximate } = routeResult
+    const renderer = routeRendererRef.current
+    const common = {
+      pane: 'routePane',
+      renderer,
+      lineCap: 'round',
+      lineJoin: 'round',
+    }
+    const layers: any[] = []
+    const baseWeight = mode === 'driving' ? 6 : 5
+    const mainColor = approximate ? ROUTE_THEME.approx : ROUTE_THEME.main
+
+    // 1) Dış gölge (casing) — yürüyüşte noktalı çizgiyle çakışmasın diye yok
+    if (mode !== 'walking') {
+      layers.push(
+        L.polyline(path, {
+          ...common,
+          color: approximate ? '#334155' : ROUTE_THEME.casing,
+          weight: baseWeight + 5,
+          opacity: 0.35,
+          interactive: false,
+        })
+      )
+    }
+
+    // 2) Ana çizgi
+    layers.push(
+      L.polyline(path, {
+        ...common,
+        color: mainColor,
+        weight: mode === 'walking' ? 7 : baseWeight,
+        opacity: 0.96,
+        dashArray:
+          mode === 'walking' ? '1 13' : mode === 'transit' || approximate ? '14 10' : undefined,
+        interactive: false,
+      })
+    )
+
+    // 3) Akan yön animasyonu (sadece gerçek araç rotasında)
+    if (mode === 'driving' && !approximate) {
+      layers.push(
+        L.polyline(path, {
+          ...common,
+          color: '#ffffff',
+          weight: 2,
+          opacity: 0.85,
+          dashArray: '2 14',
+          className: 'route-flow',
+          interactive: false,
+        })
+      )
+    }
+
+    // 4) Her bacak için: tooltip alanı, süre/mesafe etiketi, yön okları
+    legs.forEach((leg, i) => {
+      const seg = path.slice(leg.startIdx, leg.endIdx + 1)
+      if (seg.length < 2) return
+
+      const summary = `${i + 1}. etap · ${formatDistance(leg.distanceKm)} · ${formatDuration(leg.durationMin)}`
+      const hit = L.polyline(seg, {
+        ...common,
+        color: '#000000',
+        weight: 18,
+        opacity: 0,
+        interactive: true,
+      })
+      hit.bindTooltip(summary, { sticky: true, direction: 'top', className: 'route-tooltip' })
+      layers.push(hit)
+
+      const segKm = pathLengthKm(seg)
+      if (segKm <= 0) return
+
+      // Orta nokta etiketi
+      if (legs.length <= 12) {
+        const mid = pointsAlongPath(seg, segKm)[0]
+        if (mid) {
+          layers.push(
+            L.marker(mid.pos, {
+              interactive: false,
+              keyboard: false,
+              zIndexOffset: 600,
+              icon: L.divIcon({
+                className: `route-leg-label${approximate ? ' is-approx' : ''}`,
+                html: `<div>${MODE_META[mode].emoji} ${formatDistance(leg.distanceKm)} · ${formatDuration(leg.durationMin)}</div>`,
+                iconSize: [0, 0],
+              }),
+            })
+          )
+        }
+      }
+
+      // Yön okları — mesafeye göre aralıklı, etiketle çakışmaz
+      if (segKm >= 0.4) {
+        const spacing = Math.min(Math.max(segKm / 5, 0.35), 2.5)
+        const clearance = Math.max(0.15, segKm * 0.08)
+        pointsAlongPath(seg, spacing).forEach((a) => {
+          if (Math.abs(a.at - segKm / 2) < clearance) return
+          layers.push(
+            L.marker(a.pos, {
+              interactive: false,
+              keyboard: false,
+              zIndexOffset: 400,
+              icon: L.divIcon({
+                className: 'route-arrow',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+                html: `<div style="width:20px;height:20px;transform:rotate(${a.bearing}deg);">
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="10" cy="10" r="9" fill="${mainColor}" stroke="#ffffff" stroke-width="1.6"/>
+                    <path d="M6 12.5 L10 6.5 L14 12.5" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </div>`,
+              }),
+            })
+          )
+        })
+      }
+    })
+
+    const group = L.layerGroup(layers).addTo(map)
+
+    return () => {
+      try {
+        map.removeLayer(group)
+      } catch {
+        /* noop */
+      }
+    }
+  }, [routeResult, leafletLoaded])
+
+  // Yeni rota geldiğinde görünüm: panel/mobil sheet alanını hesaba katarak sığdır
+  useEffect(() => {
+    const L = leafletLibRef.current
+    const map = mapInstanceRef.current
+    if (!L || !map || !leafletLoaded || !routeResult || routeResult.path.length < 2) return
+
+    const isMobile = window.innerWidth < 768
+    const bottomPad = isMobile
+      ? Math.min((sidebarOpenRef.current ? window.innerHeight * 0.8 : 56) + 24, window.innerHeight * 0.5)
+      : 48
+
+    map.fitBounds(L.latLngBounds(routeResult.path), {
+      paddingTopLeft: [48, 64],
+      paddingBottomRight: [48, bottomPad],
+      maxZoom: 16,
+      animate: true,
+    })
+  }, [routeResult, leafletLoaded])
+
+  /* ---------------------------------------------------------------- */
+  /* Handlerlar                                                        */
+  /* ---------------------------------------------------------------- */
 
   const handleRemoveStop = useCallback((index: number) => {
     setSelectedStops((prev) => {
@@ -762,6 +1208,7 @@ export default function RoutePlannerPage() {
       copy[targetIndex] = temp
       return copy.map((item, idx) => ({ ...item, order: idx + 1 }))
     })
+    setActiveStopIndex(targetIndex)
   }, [])
 
   const handleFocusPlace = useCallback((lat: number, lng: number, index: number) => {
@@ -775,30 +1222,58 @@ export default function RoutePlannerPage() {
   }, [])
 
   const handleOpenInGoogleMaps = useCallback(() => {
-    if (selectedStops.length === 0) return
+    if (routePoints.length === 0) return
+    const fmt = (p: LatLng) => `${p[0]},${p[1]}`
 
-    if (selectedStops.length === 1) {
-      const p = selectedStops[0].place
-      window.open(`https://www.google.com/maps/search/?api=1&query=${p.latitude},${p.longitude}`, '_blank')
+    if (routePoints.length === 1) {
+      window.open(
+        `https://www.google.com/maps/search/?api=1&query=${fmt(routePoints[0])}`,
+        '_blank',
+        'noopener,noreferrer'
+      )
       return
     }
 
-    const origin = `${selectedStops[0].place.latitude},${selectedStops[0].place.longitude}`
-    const destination = `${selectedStops[selectedStops.length - 1].place.latitude},${selectedStops[selectedStops.length - 1].place.longitude}`
+    const origin = fmt(routePoints[0])
+    const destination = fmt(routePoints[routePoints.length - 1])
 
-    let waypoints = ''
-    if (selectedStops.length > 2) {
-      const intermediate = selectedStops.slice(1, -1)
-      waypoints = `&waypoints=${intermediate.map((s) => `${s.place.latitude},${s.place.longitude}`).join('|')}`
+    let middle = routePoints.slice(1, -1)
+    if (middle.length > 9) {
+      alert('Google Maps en fazla 9 ara durak destekler; ilk 9 ara durak gönderildi.')
+      middle = middle.slice(0, 9)
     }
+    const waypoints = middle.length
+      ? `&waypoints=${encodeURIComponent(middle.map(fmt).join('|'))}`
+      : ''
 
     const mode = travelMode === 'walking' ? 'walking' : travelMode === 'transit' ? 'transit' : 'driving'
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints}&travelmode=${mode}`
-    window.open(url, '_blank')
-  }, [selectedStops, travelMode])
+    window.open(
+      `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${waypoints}&travelmode=${mode}`,
+      '_blank',
+      'noopener,noreferrer'
+    )
+  }, [routePoints, travelMode])
+
+  // Sidebar'daki durak öncesi bacak bilgisi
+  const getLegBeforeStop = useCallback(
+    (idx: number): RouteLeg | null => {
+      if (!routeResult) return null
+      const legIndex = startFromUser && userLocation ? idx : idx - 1
+      return legIndex >= 0 ? routeResult.legs[legIndex] ?? null : null
+    },
+    [routeResult, startFromUser, userLocation]
+  )
+
+  const hasRoute = routePoints.length >= 2
+
+  /* ---------------------------------------------------------------- */
+  /* Render                                                            */
+  /* ---------------------------------------------------------------- */
 
   return (
     <div className="relative w-full h-[calc(100dvh-64px)] overflow-hidden bg-[#070b14] text-slate-100 flex flex-col md:flex-row">
+      <style>{ROUTE_CSS}</style>
+
       {/* SOL / ALT PANEL */}
       <div
         className={`fixed md:relative inset-x-0 bottom-0 z-30 transition-all duration-300 flex flex-col bg-[#0c1220]/95 backdrop-blur-xl border-t md:border-t-0 md:border-r border-slate-800/90 shadow-2xl ${
@@ -859,45 +1334,30 @@ export default function RoutePlannerPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="grid grid-cols-3 gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800 mb-3">
-              <button
-                type="button"
-                onClick={() => setTravelMode('driving')}
-                className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  travelMode === 'driving'
-                    ? 'bg-amber-400 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Car className="w-3.5 h-3.5" strokeWidth={2} />
-                <span>Araç</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTravelMode('walking')}
-                className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  travelMode === 'walking'
-                    ? 'bg-amber-400 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Footprints className="w-3.5 h-3.5" strokeWidth={2} />
-                <span>Yürüyüş</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTravelMode('transit')}
-                className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  travelMode === 'transit'
-                    ? 'bg-amber-400 text-slate-950 shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <TrainFront className="w-3.5 h-3.5" strokeWidth={2} />
-                <span>Toplu T.</span>
-              </button>
+              {(
+                [
+                  { mode: 'driving', Icon: Car },
+                  { mode: 'walking', Icon: Footprints },
+                  { mode: 'transit', Icon: TrainFront },
+                ] as { mode: TravelMode; Icon: typeof Car }[]
+              ).map(({ mode, Icon }) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setTravelMode(mode)}
+                  className={`flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    travelMode === mode
+                      ? 'bg-amber-400 text-slate-950 shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" strokeWidth={2} />
+                  <span>{MODE_META[mode].label}</span>
+                </button>
+              ))}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={handleGetUserLocation}
@@ -911,6 +1371,22 @@ export default function RoutePlannerPage() {
                 <Navigation className="w-3.5 h-3.5" strokeWidth={2} />
                 <span>{isLocating ? 'Konum...' : userLocation ? 'Konum Aktif' : 'Konum Bul'}</span>
               </button>
+
+              {userLocation && (
+                <button
+                  type="button"
+                  onClick={() => setStartFromUser((v) => !v)}
+                  title="Rotayı bulunduğum konumdan başlat"
+                  className={`py-1.5 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition border cursor-pointer ${
+                    startFromUser
+                      ? 'bg-sky-500/25 text-sky-200 border-sky-400/50'
+                      : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:border-sky-400/40'
+                  }`}
+                >
+                  <Flag className="w-3.5 h-3.5" strokeWidth={2} />
+                  <span>Konumdan Başla</span>
+                </button>
+              )}
 
               {selectedStops.length >= 2 && (
                 <button
@@ -1092,84 +1568,106 @@ export default function RoutePlannerPage() {
                     </button>
                   </div>
 
-                  <div className="space-y-2">
-                    {selectedStops.map((stop, idx) => (
-                      <motion.div
-                        key={stop.id}
-                        layout
-                        className={`p-2.5 md:p-3 rounded-xl border transition-all ${
-                          activeStopIndex === idx
-                            ? 'bg-amber-400/10 border-amber-400/40 shadow-lg'
-                            : 'bg-slate-900/75 border-slate-800/90'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shrink-0">
-                            {idx + 1}
-                          </div>
+                  <div className="space-y-1">
+                    {selectedStops.map((stop, idx) => {
+                      const leg = getLegBeforeStop(idx)
+                      return (
+                        <div key={stop.id}>
+                          {/* Önceki duraktan bu durağa mesafe / süre */}
+                          {leg && routeResult && (
+                            <div className="flex items-center gap-2 pl-[11px] py-1 text-[11px] font-semibold text-sky-300/90">
+                              <span className="block w-px h-4 bg-sky-400/40" />
+                              <span>
+                                {MODE_META[routeResult.mode].emoji} {formatDistance(leg.distanceKm)} ·{' '}
+                                {formatDuration(leg.durationMin)}
+                                {startFromUser && userLocation && idx === 0 ? ' · konumunuzdan' : ''}
+                              </span>
+                            </div>
+                          )}
 
-                          <div
-                            className="flex-1 min-w-0 cursor-pointer"
-                            onClick={() => handleFocusPlace(stop.place.latitude, stop.place.longitude, idx)}
+                          <motion.div
+                            layout
+                            className={`p-2.5 md:p-3 rounded-xl border transition-all ${
+                              activeStopIndex === idx
+                                ? 'bg-amber-400/10 border-amber-400/40 shadow-lg'
+                                : 'bg-slate-900/75 border-slate-800/90'
+                            }`}
                           >
-                            <h4 className="text-xs md:text-sm font-semibold text-white truncate">
-                              {stop.place.name}
-                            </h4>
-                            <p className="text-[11px] text-slate-400 truncate">
-                              {stop.place.address}
-                            </p>
-                          </div>
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-300 to-amber-500 text-slate-950 font-black text-xs flex items-center justify-center shrink-0">
+                                {idx + 1}
+                              </div>
 
-                          <div className="flex items-center gap-0.5">
-                            <button
-                              type="button"
-                              disabled={idx === 0}
-                              onClick={() => handleMoveStop(idx, 'up')}
-                              className="p-1 text-slate-400 hover:text-amber-300 disabled:opacity-20 cursor-pointer"
-                            >
-                              <ChevronUp className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={idx === selectedStops.length - 1}
-                              onClick={() => handleMoveStop(idx, 'down')}
-                              className="p-1 text-slate-400 hover:text-amber-300 disabled:opacity-20 cursor-pointer"
-                            >
-                              <ChevronDown className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveStop(idx)}
-                              className="p-1 text-slate-400 hover:text-red-400 ml-1 cursor-pointer"
-                            >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                              <div
+                                className="flex-1 min-w-0 cursor-pointer"
+                                onClick={() =>
+                                  handleFocusPlace(stop.place.latitude, stop.place.longitude, idx)
+                                }
+                              >
+                                <h4 className="text-xs md:text-sm font-semibold text-white truncate">
+                                  {stop.place.name}
+                                </h4>
+                                <p className="text-[11px] text-slate-400 truncate">
+                                  {stop.place.address}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  disabled={idx === 0}
+                                  onClick={() => handleMoveStop(idx, 'up')}
+                                  className="p-1 text-slate-400 hover:text-amber-300 disabled:opacity-20 cursor-pointer"
+                                >
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={idx === selectedStops.length - 1}
+                                  onClick={() => handleMoveStop(idx, 'down')}
+                                  className="p-1 text-slate-400 hover:text-amber-300 disabled:opacity-20 cursor-pointer"
+                                >
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveStop(idx)}
+                                  className="p-1 text-slate-400 hover:text-red-400 ml-1 cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </motion.div>
                         </div>
-                      </motion.div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
             </div>
 
-            {selectedStops.length >= 2 && (
+            {hasRoute && (
               <div className="p-3 md:p-4 border-t border-slate-800/80 bg-[#070b14]/90">
-                <div className="flex items-center justify-between mb-2.5 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-xs">
+                <div
+                  className={`flex items-center justify-between mb-2.5 bg-slate-900/80 p-2.5 rounded-xl border border-slate-800 text-xs transition-opacity ${
+                    isRoutingLoading ? 'opacity-60' : 'opacity-100'
+                  }`}
+                >
                   <div>
-                    <span className="text-slate-400">Toplam Mesafe</span>
+                    <span className="text-slate-400">
+                      Toplam Mesafe{routeResult?.approximate ? ' (kuş uçuşu)' : ''}
+                    </span>
                     <p className="font-bold text-white mt-0.5">
-                      {realRouteStats ? `${realRouteStats.distanceKm} km` : '...'}
+                      {routeResult ? formatDistance(routeResult.distanceKm) : '...'}
                     </p>
                   </div>
                   <div className="text-right">
-                    <span className="text-slate-400">Tahmini Süre</span>
+                    <span className="text-slate-400">
+                      Tahmini Süre ({selectedStops.length > 0 ? routePoints.length - 1 : 0} etap)
+                    </span>
                     <p className="font-bold text-amber-400 mt-0.5">
-                      {realRouteStats
-                        ? realRouteStats.durationMin >= 60
-                          ? `${Math.floor(realRouteStats.durationMin / 60)}s ${realRouteStats.durationMin % 60}dk`
-                          : `${realRouteStats.durationMin} dk`
-                        : '...'}
+                      {routeResult ? formatDuration(routeResult.durationMin) : '...'}
                     </p>
                   </div>
                 </div>
@@ -1220,6 +1718,20 @@ export default function RoutePlannerPage() {
             <div className="px-3 py-1.5 rounded-full text-[11px] font-semibold text-amber-300 border border-amber-400/25 shadow-lg flex items-center gap-1.5 pointer-events-auto bg-[#0c1220]/90 backdrop-blur-md">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
               <span>Rota Hesaplanıyor...</span>
+            </div>
+          )}
+
+          {!isRoutingLoading && routeResult?.approximate && (
+            <div className="px-3 py-1.5 rounded-full text-[11px] font-semibold text-slate-200 border border-slate-600/60 shadow-lg flex items-center gap-1.5 pointer-events-auto bg-[#0c1220]/90 backdrop-blur-md">
+              <TriangleAlert className="w-3.5 h-3.5 text-amber-400" />
+              <span>Yol verisine ulaşılamadı, kuş uçuşu gösteriliyor</span>
+            </div>
+          )}
+
+          {!isRoutingLoading && routeResult && !routeResult.approximate && routeResult.mode === 'transit' && (
+            <div className="px-3 py-1.5 rounded-full text-[11px] font-semibold text-slate-200 border border-slate-700/80 shadow-lg flex items-center gap-1.5 pointer-events-auto bg-[#0c1220]/90 backdrop-blur-md">
+              <TrainFront className="w-3.5 h-3.5 text-sky-400" />
+              <span>Toplu taşıma süresi tahminidir</span>
             </div>
           )}
         </div>
