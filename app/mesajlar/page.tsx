@@ -1,64 +1,153 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import AnimatedBackground from '@/components/ui/AnimatedBackground'
 import AnimatedSection from '@/components/ui/AnimatedSection'
 
+interface ConversationItem {
+  userId: string
+  username: string
+  avatarUrl: string | null
+  lastMessage: string
+  createdAt: string
+  isRead: boolean
+  unreadCount: number
+}
+
 export default function MesajlarPage() {
-  const [conversations, setConversations] = useState<any[]>([])
+  const [conversations, setConversations] = useState<ConversationItem[]>([])
+  const [userId, setUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
 
+  const loadConversations = useCallback(
+    async (uid: string) => {
+      const { data: messages, error } = await supabase
+        .from('messages')
+        .select('id, content, created_at, is_read, sender_id, receiver_id')
+        .or(`sender_id.eq.${uid},receiver_id.eq.${uid}`)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.error('Mesajlar alınamadı:', error.message)
+        setConversations([])
+        return
+      }
+
+      if (!messages || messages.length === 0) {
+        setConversations([])
+        return
+      }
+
+      const partnerIds = Array.from(
+        new Set(
+          messages
+            .map((msg: any) => (msg.sender_id === uid ? msg.receiver_id : msg.sender_id))
+            .filter(Boolean)
+        )
+      )
+
+      const profileMap = new Map<string, { username?: string | null; avatar_url?: string | null }>()
+
+      if (partnerIds.length > 0) {
+        const { data: profilesData, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, username, avatar_url')
+          .in('id', partnerIds)
+
+        if (profilesError) {
+          console.error('Profiller alınamadı:', profilesError.message)
+        } else {
+          ;(profilesData ?? []).forEach((p: any) => {
+            profileMap.set(p.id, {
+              username: p.username,
+              avatar_url: p.avatar_url,
+            })
+          })
+        }
+      }
+
+      const conversationMap = new Map<string, ConversationItem>()
+
+      messages.forEach((msg: any) => {
+        const partnerId = msg.sender_id === uid ? msg.receiver_id : msg.sender_id
+        if (!partnerId) return
+
+        const profile = profileMap.get(partnerId)
+        const isIncomingUnread = msg.receiver_id === uid && !msg.is_read
+
+        const existing = conversationMap.get(partnerId)
+        if (!existing) {
+          conversationMap.set(partnerId, {
+            userId: partnerId,
+            username: profile?.username || 'Anonim',
+            avatarUrl: profile?.avatar_url || null,
+            lastMessage: msg.content,
+            createdAt: msg.created_at,
+            isRead: msg.sender_id === uid ? true : Boolean(msg.is_read),
+            unreadCount: isIncomingUnread ? 1 : 0,
+          })
+        } else if (isIncomingUnread) {
+          existing.unreadCount += 1
+        }
+      })
+
+      setConversations(Array.from(conversationMap.values()))
+    },
+    [supabase]
+  )
+
   useEffect(() => {
-    const fetchConversations = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+    let active = true
+
+    const init = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!active) return
+
       if (!user) {
         router.push('/giris')
         return
       }
 
-      const { data: messages } = await supabase
-        .from('messages')
-        .select(`
-          id, content, created_at, is_read,
-          sender_id, receiver_id,
-          sender:profiles!messages_sender_id_fkey ( id, username, avatar_url ),
-          receiver:profiles!messages_receiver_id_fkey ( id, username, avatar_url )
-        `)
-        .or(`sender_id.eq.${user.id},receiver_id.eq.${user.id}`)
-        .order('created_at', { ascending: false })
-
-      if (!messages) {
-        setLoading(false)
-        return
-      }
-
-      const conversationMap = new Map()
-      messages.forEach((msg: any) => {
-        const partnerId = msg.sender_id === user.id ? msg.receiver_id : msg.sender_id
-        const partner = msg.sender_id === user.id ? msg.receiver : msg.sender
-
-        if (!conversationMap.has(partnerId)) {
-          conversationMap.set(partnerId, {
-            userId: partnerId,
-            username: partner?.username || 'Anonim',
-            avatarUrl: partner?.avatar_url || null,
-            lastMessage: msg.content,
-            createdAt: msg.created_at,
-            isRead: msg.is_read || msg.sender_id === user.id,
-          })
-        }
-      })
-
-      setConversations(Array.from(conversationMap.values()))
-      setLoading(false)
+      setUserId(user.id)
+      await loadConversations(user.id)
+      if (active) setLoading(false)
     }
 
-    fetchConversations()
-  }, [supabase, router])
+    void init()
+    return () => {
+      active = false
+    }
+  }, [supabase, router, loadConversations])
+
+  useEffect(() => {
+    if (!userId) return
+
+    const channel = supabase
+      .channel(`conversations-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'messages' },
+        (payload) => {
+          const row = (payload.new || payload.old) as any
+          if (!row) return
+          if (row.sender_id === userId || row.receiver_id === userId) {
+            void loadConversations(userId)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  }, [userId, supabase, loadConversations])
 
   if (loading) {
     return (
@@ -95,15 +184,24 @@ export default function MesajlarPage() {
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="font-semibold text-gray-100 truncate">{conv.username}</span>
                     <span className="text-xs text-gray-400 shrink-0">
-                      {new Date(conv.createdAt).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' })}
+                      {new Date(conv.createdAt).toLocaleDateString('tr-TR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                      })}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <p className={`text-sm truncate ${!conv.isRead ? 'font-semibold text-gray-200' : 'text-gray-400'}`}>
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                    <p
+                      className={`text-sm truncate ${
+                        conv.unreadCount > 0 ? 'font-semibold text-gray-100' : 'text-gray-400'
+                      }`}
+                    >
                       {conv.lastMessage}
                     </p>
-                    {!conv.isRead && (
-                      <span className="w-2 h-2 bg-primary-500 rounded-full shrink-0" />
+                    {conv.unreadCount > 0 && (
+                      <span className="px-2 py-0.5 text-[11px] font-bold bg-primary-500 text-white rounded-full shrink-0">
+                        {conv.unreadCount}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -115,7 +213,7 @@ export default function MesajlarPage() {
             <div className="text-5xl mb-3">💬</div>
             <p className="text-gray-400">Henüz mesajınız yok.</p>
             <p className="text-gray-500 text-sm mt-2">
-              Takip ettiğiniz kullanıcıların profiline gidip "Mesaj Gönder" butonunu kullanın.
+              Takip ettiğiniz kullanıcıların profiline gidip “Mesaj Gönder” butonunu kullanın.
             </p>
           </div>
         )}

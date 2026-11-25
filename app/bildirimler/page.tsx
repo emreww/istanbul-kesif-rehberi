@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Bell,
@@ -12,7 +11,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   Info,
-  Compass,
   Sparkles,
 } from 'lucide-react'
 import AnimatedBackground from '@/components/ui/AnimatedBackground'
@@ -161,11 +159,47 @@ export default function BildirimlerPage() {
       if (active) setLoadingUser(false)
     }
 
-    init()
+    void init()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return
+      const nextUserId = session?.user?.id ?? null
+      setUserId(nextUserId)
+      if (nextUserId) {
+        void fetchNotifications(nextUserId)
+      }
+    })
+
     return () => {
       active = false
+      subscription.unsubscribe()
     }
   }, [supabase, router, fetchNotifications])
+
+  // Sekmeye geri dönüldüğünde bildirimleri yenile
+  useEffect(() => {
+    if (!userId) return
+
+    const refresh = () => {
+      void fetchNotifications(userId)
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        refresh()
+      }
+    }
+
+    window.addEventListener('focus', refresh)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+
+    return () => {
+      window.removeEventListener('focus', refresh)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [userId, fetchNotifications])
 
   // Realtime INSERT / UPDATE / DELETE dinleme
   useEffect(() => {
@@ -223,7 +257,7 @@ export default function BildirimlerPage() {
       })
 
     return () => {
-      supabase.removeChannel(channel)
+      void supabase.removeChannel(channel)
     }
   }, [userId, supabase])
 
@@ -425,7 +459,7 @@ export default function BildirimlerPage() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, x: 24, scale: 0.96 }}
                     transition={{ duration: 0.18 }}
-                    onClick={() => markAsRead(notification)}
+                    onClick={() => void markAsRead(notification)}
                     className={`group relative rounded-2xl p-4 sm:p-5 border transition-all cursor-pointer flex items-start gap-3.5 backdrop-blur-md ${
                       notification.read
                         ? 'bg-slate-900/55 border-white/10 hover:border-white/20'
@@ -475,7 +509,7 @@ export default function BildirimlerPage() {
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleDelete(notification.id)
+                        void handleDelete(notification.id)
                       }}
                       className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition shrink-0 cursor-pointer"
                       title="Bildirimi sil"
