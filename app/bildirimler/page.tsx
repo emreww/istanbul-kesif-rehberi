@@ -263,7 +263,7 @@ export default function BildirimlerPage() {
     const { error } = await supabase.from('notifications').delete().eq('id', id)
     if (error) {
       console.error('Bildirim silinemedi:', error.message)
-      if (userId) fetchNotifications(userId)
+      if (userId) void fetchNotifications(userId)
     }
   }
 

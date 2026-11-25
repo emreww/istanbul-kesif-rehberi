@@ -25,52 +25,97 @@ export default function SohbetPage() {
   const { addNotification } = useNotificationStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const channelRef = useRef<any>(null)
+  const canMessageRef = useRef(false)
+
+  useEffect(() => {
+    canMessageRef.current = canMessage
+  }, [canMessage])
 
   const getChannelName = (userIdA: string, userIdB: string) => {
     const sorted = [userIdA, userIdB].sort()
     return `chat-${sorted[0]}-${sorted[1]}`
   }
 
+  const appendMessageUnique = (incoming: any) => {
+    if (!incoming) return
+    setMessages((prev) => {
+      if (incoming.id && prev.some((m) => m.id === incoming.id)) {
+        return prev.map((m) => (m.id === incoming.id ? { ...m, ...incoming } : m))
+      }
+      return [...prev, incoming]
+    })
+  }
+
   // Kullanıcı, alıcı ve takip durumunu yükle
   useEffect(() => {
+    let active = true
+
     const init = async () => {
       setLoadingPage(true)
-      const { data: { user } } = await supabase.auth.getUser()
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (!active) return
+
       if (!user) {
         router.push('/giris')
         return
       }
       setCurrentUser(user)
 
-      const [{ data: receiverData }, { data: followsData }] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('id, username, avatar_url')
-          .eq('id', receiverId)
-          .single(),
-        supabase
-          .from('user_follows')
-          .select('follower_id, following_id')
-          .or(
-            `and(follower_id.eq.${user.id},following_id.eq.${receiverId}),and(follower_id.eq.${receiverId},following_id.eq.${user.id})`
-          ),
-      ])
+      if (!receiverId || receiverId === user.id) {
+        setCanMessage(false)
+        setLoadingPage(false)
+        return
+      }
+
+      const [{ data: receiverData, error: receiverError }, { data: followsData, error: followsError }] =
+        await Promise.all([
+          supabase
+            .from('profiles')
+            .select('id, username, avatar_url')
+            .eq('id', receiverId)
+            .single(),
+          supabase
+            .from('user_follows')
+            .select('*')
+            .or(
+              `and(follower_id.eq.${user.id},following_id.eq.${receiverId}),and(follower_id.eq.${receiverId},following_id.eq.${user.id})`
+            ),
+        ])
+
+      if (!active) return
+
+      if (receiverError) {
+        console.error('Alıcı profili alınamadı:', receiverError.message)
+      }
+      if (followsError) {
+        console.error('Takip durumu alınamadı:', followsError.message)
+      }
 
       setReceiver(receiverData)
 
-      const iFollowReceiver = !!followsData?.some(
-        (f) => f.follower_id === user.id && f.following_id === receiverId
+      const rows = followsData ?? []
+      const iFollowReceiver = rows.some(
+        (f: any) =>
+          (f.follower_id === user.id && f.following_id === receiverId) ||
+          (f.user_id === user.id && f.followed_id === receiverId)
       )
-      const receiverFollowsMe = !!followsData?.some(
-        (f) => f.follower_id === receiverId && f.following_id === user.id
+      const receiverFollowsMe = rows.some(
+        (f: any) =>
+          (f.follower_id === receiverId && f.following_id === user.id) ||
+          (f.user_id === receiverId && f.followed_id === user.id)
       )
 
-      // Karşılıklı takip gerekiyorsa: iFollowReceiver && receiverFollowsMe
-      // Sadece sizin takip etmeniz yeterliyse: iFollowReceiver
       setCanMessage(iFollowReceiver && receiverFollowsMe)
       setLoadingPage(false)
     }
-    init()
+
+    void init()
+    return () => {
+      active = false
+    }
   }, [supabase, receiverId, router])
 
   // Mesajları yükle ve Realtime kanalı kur
@@ -79,7 +124,11 @@ export default function SohbetPage() {
 
     const channelName = getChannelName(currentUser.id, receiverId)
     const channel = supabase
-      .channel(channelName)
+      .channel(channelName, {
+        config: {
+          broadcast: { ack: false },
+        },
+      })
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
@@ -89,13 +138,13 @@ export default function SohbetPage() {
             (msg.sender_id === currentUser.id && msg.receiver_id === receiverId) ||
             (msg.sender_id === receiverId && msg.receiver_id === currentUser.id)
           ) {
-            setMessages((prev) => [...prev, msg])
+            appendMessageUnique(msg)
             if (msg.receiver_id === currentUser.id) {
-              supabase.from('messages').update({ is_read: true }).eq('id', msg.id)
-              channel.send({
+              void supabase.from('messages').update({ is_read: true }).eq('id', msg.id)
+              void channel.send({
                 type: 'broadcast',
                 event: 'read_receipt',
-                payload: { readerId: currentUser.id, receiverId: receiverId },
+                payload: { readerId: currentUser.id, receiverId },
               })
             }
           }
@@ -111,8 +160,26 @@ export default function SohbetPage() {
           )
         }
       )
+      .on('broadcast', { event: 'new_message' }, ({ payload }) => {
+        const msg = payload?.message
+        if (!msg) return
+        if (
+          (msg.sender_id === currentUser.id && msg.receiver_id === receiverId) ||
+          (msg.sender_id === receiverId && msg.receiver_id === currentUser.id)
+        ) {
+          appendMessageUnique(msg)
+          if (msg.receiver_id === currentUser.id && msg.id) {
+            void supabase.from('messages').update({ is_read: true }).eq('id', msg.id)
+            void channel.send({
+              type: 'broadcast',
+              event: 'read_receipt',
+              payload: { readerId: currentUser.id, receiverId },
+            })
+          }
+        }
+      })
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
-        if (!canMessage) return
+        if (!canMessageRef.current) return
         if (payload.userId === receiverId) {
           setIsTyping(true)
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
@@ -130,16 +197,27 @@ export default function SohbetPage() {
           )
         }
       })
-      .subscribe()
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error('Chat realtime durumu:', status)
+        }
+      })
 
     channelRef.current = channel
 
     const fetchMessages = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .select('id, sender_id, receiver_id, content, created_at, is_read')
-        .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${receiverId}),and(sender_id.eq.${receiverId},receiver_id.eq.${currentUser.id})`)
+        .or(
+          `and(sender_id.eq.${currentUser.id},receiver_id.eq.${receiverId}),and(sender_id.eq.${receiverId},receiver_id.eq.${currentUser.id})`
+        )
         .order('created_at', { ascending: true })
+
+      if (error) {
+        console.error('Mesajlar yüklenemedi:', error.message)
+        return
+      }
 
       setMessages(data ?? [])
 
@@ -152,30 +230,30 @@ export default function SohbetPage() {
         .select('id')
 
       if (updatedMessages && updatedMessages.length > 0) {
-        channel.send({
+        void channel.send({
           type: 'broadcast',
           event: 'read_receipt',
-          payload: { readerId: currentUser.id, receiverId: receiverId },
+          payload: { readerId: currentUser.id, receiverId },
         })
       }
     }
 
-    fetchMessages()
+    void fetchMessages()
 
     return () => {
-      supabase.removeChannel(channel)
+      void supabase.removeChannel(channel)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
-  }, [supabase, currentUser, receiverId, canMessage])
+  }, [supabase, currentUser, receiverId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping])
 
   const handleTyping = () => {
-    if (!channelRef.current || !currentUser || !canMessage) return
+    if (!channelRef.current || !currentUser || !canMessageRef.current) return
 
-    channelRef.current.send({
+    void channelRef.current.send({
       type: 'broadcast',
       event: 'typing',
       payload: { userId: currentUser.id },
@@ -192,16 +270,47 @@ export default function SohbetPage() {
     }
 
     setSending(true)
-    const { error } = await supabase.from('messages').insert({
-      sender_id: currentUser.id,
-      receiver_id: receiverId,
-      content: newMessage.trim(),
-    })
+    const content = newMessage.trim()
+
+    const { data: insertedMsg, error } = await supabase
+      .from('messages')
+      .insert({
+        sender_id: currentUser.id,
+        receiver_id: receiverId,
+        content,
+      })
+      .select('id, sender_id, receiver_id, content, created_at, is_read')
+      .single()
 
     if (error) {
       addNotification('Mesaj gönderilemedi: ' + error.message, 'warning')
       setSending(false)
       return
+    }
+
+    if (insertedMsg) {
+      appendMessageUnique(insertedMsg)
+      void channelRef.current?.send({
+        type: 'broadcast',
+        event: 'new_message',
+        payload: { message: insertedMsg },
+      })
+    }
+
+    if (receiverId && receiverId !== currentUser.id) {
+      const senderName =
+        currentUser.user_metadata?.username || currentUser.email || 'Bir kullanıcı'
+
+      const { error: notifError } = await supabase.from('notifications').insert({
+        user_id: receiverId,
+        message: `${senderName} sana yeni bir mesaj gönderdi: "${content.slice(0, 60)}${content.length > 60 ? '...' : ''}"`,
+        type: 'info',
+        read: false,
+      })
+
+      if (notifError) {
+        console.error('Mesaj bildirimi eklenemedi:', notifError.message)
+      }
     }
 
     setNewMessage('')
@@ -226,6 +335,7 @@ export default function SohbetPage() {
         {/* Başlık */}
         <div className="flex items-center gap-3 py-2 border-b border-white/10">
           <button
+            type="button"
             onClick={() => router.back()}
             className="p-2 rounded-full text-gray-300 hover:bg-white/10 transition"
           >
@@ -278,7 +388,10 @@ export default function SohbetPage() {
                   >
                     {msg.content}
                     <div className="text-[10px] opacity-70 mt-1 text-right flex items-center justify-end gap-1">
-                      {new Date(msg.created_at).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(msg.created_at).toLocaleTimeString('tr-TR', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
                       {isMine && (
                         <span className="text-[10px]">
                           {msg.is_read ? '✓✓' : '✓'}
@@ -331,7 +444,12 @@ export default function SohbetPage() {
             className="p-2 rounded-full bg-primary-500 text-white hover:bg-primary-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+              />
             </svg>
           </button>
         </form>
