@@ -101,7 +101,7 @@
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
-
+  
   ::selection {
     background: var(--color-primary-500);
     color: var(--color-ink-950);
@@ -119,6 +119,10 @@
 }
 
 @layer components {
+
+  select{cursor: pointer;}  
+
+
   .glass-panel,
   .glass-card {
     -webkit-backdrop-filter: blur(6px);

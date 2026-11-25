@@ -32,6 +32,26 @@ export default function Navbar() {
 
   const [supabase] = useState(() => createClient())
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearCloseTimeout = () => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current)
+      closeTimeoutRef.current = null
+    }
+  }
+
+  const handleDropdownMouseEnter = () => {
+    clearCloseTimeout()
+    setDropdownOpen(true)
+  }
+
+  const handleDropdownMouseLeave = () => {
+    clearCloseTimeout()
+    closeTimeoutRef.current = setTimeout(() => {
+      setDropdownOpen(false)
+    }, 150)
+  }
 
   const hideNavbar = pathname?.startsWith('/admin')
 
@@ -82,6 +102,7 @@ export default function Navbar() {
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        clearCloseTimeout()
         setDropdownOpen(false)
       }
     }
@@ -89,7 +110,12 @@ export default function Navbar() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  useEffect(() => {
+    return () => clearCloseTimeout()
+  }, [])
+
   const handleLogout = async () => {
+    clearCloseTimeout()
     await supabase.auth.signOut()
     setDropdownOpen(false)
     router.push('/')
@@ -159,7 +185,7 @@ export default function Navbar() {
               href="/mekan-ekle"
               className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold border transition-all duration-200 ${
                 isActive('/mekan-ekle')
-                  ? 'bg-amber-400 text-slate-950 border-amber-400'
+                  ? 'bg-amber-400 text-slate-950 border-amber-400 hover:bg-[#FCC93F]'
                   : 'bg-slate-900/80 text-amber-300 border-amber-400/30 hover:border-amber-400/70 hover:bg-amber-400/10'
               }`}
             >
@@ -171,12 +197,15 @@ export default function Navbar() {
               <div
                 className="relative"
                 ref={dropdownRef}
-                onMouseEnter={() => setDropdownOpen(true)}
-                onMouseLeave={() => setDropdownOpen(false)}
+                onMouseEnter={handleDropdownMouseEnter}
+                onMouseLeave={handleDropdownMouseLeave}
               >
                 <button
                   type="button"
-                  onClick={() => setDropdownOpen((prev) => !prev)}
+                  onClick={() => {
+                    clearCloseTimeout()
+                    setDropdownOpen((prev) => !prev)
+                  }}
                   className="flex items-center gap-2.5 pl-1.5 pr-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 hover:border-amber-400/40 transition-all duration-200 group"
                 >
                   <div className="w-7 h-7 rounded-full bg-amber-400/15 border border-amber-400/40 flex items-center justify-center text-amber-300 text-xs font-semibold overflow-hidden">

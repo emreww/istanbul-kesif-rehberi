@@ -168,7 +168,7 @@ export default function PlaceForm() {
           className="w-full flex items-center justify-between text-left text-lg font-semibold text-gray-200 hover:text-primary-400 transition"
         >
           <span>Detaylı Bilgiler (opsiyonel)</span>
-          <span className={`transform transition-transform ${showDetails ? 'rotate-180' : ''}`}>
+          <span className={`cursor-pointer transform transition-transform ${showDetails ? '-rotate-1' : 'rotate-90'}`}>
             ▼
           </span>
         </button>
@@ -234,7 +234,7 @@ export default function PlaceForm() {
         )}
       </div>
 
-      <button type="submit" disabled={loading} className="btn-primary w-full">
+      <button type="submit" disabled={loading} className="w-full py-3 px-4 rounded-md bg-[#FBBF24] hover:bg-[#FCC93F] active:bg-amber-500 disabled:opacity-50 disabled:pointer-events-none text-neutral-950 text-xs sm:text-sm font-bold tracking-wider uppercase transition duration-300 ease-in-out shadow-sm cursor-pointer">
         {loading ? 'Gönderiliyor...' : 'Mekanı Öner'}
       </button>
     </form>
