@@ -1353,13 +1353,6 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
 
         {sidebarOpen && (
           <div className="p-3 border-t border-white/10 space-y-2">
-            <div className="px-3 py-2 rounded-xl bg-white/[0.03] border border-white/5">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Oturum</div>
-              <div className="text-xs font-semibold text-white truncate">
-                {currentAdmin.username || 'Yönetici'}
-              </div>
-              <RoleBadge role={currentAdmin.role} className="mt-1" />
-            </div>
             <button type="button" onClick={() => router.push('/')}
               className="w-full flex items-center gap-3 p-3 rounded-xl text-sm text-gray-400 hover:bg-white/5 hover:text-white transition cursor-pointer">
               <span className="text-lg">🏠</span><span>Ana Sayfaya Dön</span>
