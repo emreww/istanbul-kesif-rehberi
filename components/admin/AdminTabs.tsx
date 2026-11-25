@@ -64,6 +64,19 @@ interface Stats {
   totalPhotos: number; pendingCount: number
 }
 
+interface DailyActivityPoint {
+  date: string
+  shortLabel: string
+  fullLabel: string
+  total: number
+  places: number
+  reviews: number
+  users: number
+  reports: number
+}
+
+type SeriesKey = 'total' | 'places' | 'reviews' | 'users' | 'reports'
+
 /* ──────────────────── Constants ──────────────────── */
 const CLOSED_REPORTS_STORAGE_KEY = 'istanbul_admin_closed_reports'
 
@@ -78,6 +91,17 @@ const TABS: { id: TabId; label: string; icon: string; color: string; group: 'con
   { id: 'kapatilan_raporlar', label: 'Kapatılanlar',    icon: '📁', color: 'text-teal-400',    group: 'content' },
   { id: 'audit_log',          label: 'İşlem Geçmişi',   icon: '📋', color: 'text-amber-300',   group: 'system'  },
 ]
+
+const SERIES_META: Record<
+  SeriesKey,
+  { label: string; color: string; badgeClass: string }
+> = {
+  total:   { label: 'Toplam',   color: '#fbbf24', badgeClass: 'bg-amber-400/15 text-amber-300 border-amber-400/30' },
+  places:  { label: 'Mekanlar', color: '#f59e0b', badgeClass: 'bg-amber-500/15 text-amber-200 border-amber-500/30' },
+  reviews: { label: 'Yorumlar', color: '#38bdf8', badgeClass: 'bg-sky-400/15 text-sky-300 border-sky-400/30' },
+  users:   { label: 'Üyeler',   color: '#34d399', badgeClass: 'bg-emerald-400/15 text-emerald-300 border-emerald-400/30' },
+  reports: { label: 'Raporlar', color: '#fb7185', badgeClass: 'bg-rose-400/15 text-rose-300 border-rose-400/30' },
+}
 
 const motionProps = {
   initial: { opacity: 0, y: 12 },
@@ -252,6 +276,276 @@ function PlaceAccordion({
   )
 }
 
+function ActivityTrendChart({
+  data,
+  onSelectCategory,
+}: {
+  data: DailyActivityPoint[]
+  onSelectCategory?: (category: 'places' | 'reviews' | 'users' | 'reports', date: string) => void
+}) {
+  const [activeSeries, setActiveSeries] = useState<SeriesKey>('total')
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+
+  const summary = useMemo(() => {
+    const sum = data.reduce((acc, d) => acc + d[activeSeries], 0)
+    const avg = data.length ? (sum / data.length).toFixed(1) : '0'
+    const peak = data.reduce<DailyActivityPoint | null>(
+      (best, d) => (!best || d[activeSeries] > best[activeSeries] ? d : best),
+      null
+    )
+    return { sum, avg, peak }
+  }, [data, activeSeries])
+
+  const inspectedIndex = hoveredIndex ?? selectedIndex ?? (data.length ? data.length - 1 : null)
+  const inspectedPoint = inspectedIndex !== null ? data[inspectedIndex] ?? null : null
+
+  const width = 760
+  const height = 185
+  const padLeft = 36
+  const padRight = 20
+  const padTop = 22
+  const padBottom = 32
+  const plotW = width - padLeft - padRight
+  const plotH = height - padTop - padBottom
+
+  const maxVal = Math.max(...data.map((d) => d[activeSeries]), 1)
+
+  const points = data.map((d, i) => {
+    const val = d[activeSeries]
+    const x = padLeft + (data.length > 1 ? (i * plotW) / (data.length - 1) : plotW / 2)
+    const y = padTop + plotH - (val / maxVal) * plotH
+    return { x, y, val, point: d, index: i }
+  })
+
+  const smoothLinePath = points
+    .map((p, i) => {
+      if (i === 0) return `M ${p.x} ${p.y}`
+      const prev = points[i - 1]
+      const cp1x = prev.x + (p.x - prev.x) / 2
+      return `C ${cp1x} ${prev.y}, ${cp1x} ${p.y}, ${p.x} ${p.y}`
+    })
+    .join(' ')
+
+  const areaPath =
+    points.length > 0
+      ? `${smoothLinePath} L ${points[points.length - 1].x} ${padTop + plotH} L ${points[0].x} ${padTop + plotH} Z`
+      : ''
+
+  const yTicks = [maxVal, Math.round(maxVal / 2), 0]
+  const strokeColor = SERIES_META[activeSeries].color
+
+  return (
+    <div className="glass-panel p-6 rounded-3xl border border-white/10 relative overflow-hidden shadow-xl space-y-5">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-white/10 pb-4">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h3 className="font-bold text-lg text-white flex items-center gap-2">
+              <span>📈</span> Son {data.length || 7} Günlük Aktivite Trendi
+            </h3>
+            <Badge variant="success">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5" />
+              Canlı Trend
+            </Badge>
+          </div>
+          <p className="text-xs text-gray-400">
+            Günlük ortalama: <strong className="text-gray-200">{summary.avg}</strong> • En yoğun gün:{' '}
+            <strong className="text-amber-300">
+              {summary.peak ? `${summary.peak.shortLabel} (${summary.peak[activeSeries]})` : '-'}
+            </strong>
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-1.5">
+          {(Object.keys(SERIES_META) as SeriesKey[]).map((key) => {
+            const meta = SERIES_META[key]
+            const isSelected = activeSeries === key
+            const dayTotal = data.reduce((acc, item) => acc + item[key], 0)
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setActiveSeries(key)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition cursor-pointer flex items-center gap-1.5 ${
+                  isSelected
+                    ? meta.badgeClass + ' shadow-sm'
+                    : 'bg-white/[0.03] text-gray-400 border-white/10 hover:bg-white/[0.08] hover:text-gray-200'
+                }`}
+              >
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: meta.color }}
+                />
+                <span>{meta.label}</span>
+                <span className="opacity-80 font-mono text-[11px]">{dayTotal}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-center">
+        <div className="xl:col-span-8 min-w-0">
+          <svg
+            viewBox={`0 0 ${width} ${height}`}
+            className="w-full h-44 md:h-48 select-none overflow-visible"
+            onMouseLeave={() => setHoveredIndex(null)}
+          >
+            <defs>
+              <linearGradient id="adminAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={strokeColor} stopOpacity="0.35" />
+                <stop offset="100%" stopColor={strokeColor} stopOpacity="0.0" />
+              </linearGradient>
+            </defs>
+
+            {yTicks.map((tick, idx) => {
+              const y = padTop + (idx * plotH) / 2
+              return (
+                <g key={idx}>
+                  <line
+                    x1={padLeft}
+                    y1={y}
+                    x2={width - padRight}
+                    y2={y}
+                    stroke="rgba(255,255,255,0.07)"
+                    strokeDasharray="4 4"
+                  />
+                  <text
+                    x={padLeft - 8}
+                    y={y + 3.5}
+                    textAnchor="end"
+                    fill="#9ca3af"
+                    fontSize="10"
+                    className="font-mono"
+                  >
+                    {tick}
+                  </text>
+                </g>
+              )
+            })}
+
+            {inspectedIndex !== null && points[inspectedIndex] && (
+              <line
+                x1={points[inspectedIndex].x}
+                y1={padTop}
+                x2={points[inspectedIndex].x}
+                y2={padTop + plotH}
+                stroke="rgba(255,255,255,0.18)"
+                strokeDasharray="3 3"
+              />
+            )}
+
+            {areaPath && <path d={areaPath} fill="url(#adminAreaGrad)" className="transition-all duration-300" />}
+            {smoothLinePath && (
+              <path
+                d={smoothLinePath}
+                fill="none"
+                stroke={strokeColor}
+                strokeWidth="3"
+                strokeLinecap="round"
+                className="transition-all duration-300"
+              />
+            )}
+
+            {points.map((p) => {
+              const isHighlighted = inspectedIndex === p.index
+              return (
+                <g
+                  key={p.point.date}
+                  className="cursor-pointer"
+                  onMouseEnter={() => setHoveredIndex(p.index)}
+                  onClick={() => setSelectedIndex(p.index)}
+                >
+                  <rect
+                    x={p.x - plotW / (Math.max(data.length, 1) * 1.6)}
+                    y={padTop}
+                    width={Math.max(24, plotW / Math.max(data.length, 1))}
+                    height={plotH + padBottom}
+                    fill="transparent"
+                  />
+                  <circle
+                    cx={p.x}
+                    cy={p.y}
+                    r={isHighlighted ? 6 : 4}
+                    fill="#0f172a"
+                    stroke={strokeColor}
+                    strokeWidth={isHighlighted ? 3 : 2}
+                    className="transition-all duration-150"
+                  />
+                  {isHighlighted && (
+                    <text
+                      x={p.x}
+                      y={Math.max(12, p.y - 11)}
+                      textAnchor="middle"
+                      fill="#ffffff"
+                      fontSize="11"
+                      fontWeight="bold"
+                    >
+                      {p.val}
+                    </text>
+                  )}
+                  <text
+                    x={p.x}
+                    y={height - 8}
+                    textAnchor="middle"
+                    fill={p.index === data.length - 1 ? '#fbbf24' : isHighlighted ? '#e5e7eb' : '#9ca3af'}
+                    fontSize="10.5"
+                    fontWeight={p.index === data.length - 1 || isHighlighted ? '700' : '500'}
+                  >
+                    {p.index === data.length - 1 ? 'Bugün' : p.point.shortLabel}
+                  </text>
+                </g>
+              )
+            })}
+          </svg>
+        </div>
+
+        <div className="xl:col-span-4 rounded-2xl bg-white/[0.03] border border-white/10 p-4 space-y-3">
+          {inspectedPoint ? (
+            <>
+              <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-2.5">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-gray-400">Gün Detayı</div>
+                  <div className="text-sm font-bold text-white">{inspectedPoint.fullLabel}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xl font-extrabold text-amber-300 tabular-nums">
+                    {inspectedPoint.total}
+                  </div>
+                  <div className="text-[10px] text-gray-400">toplam kayıt</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {(
+                  [
+                    ['places', '📍 Mekan', inspectedPoint.places],
+                    ['reviews', '💬 Yorum', inspectedPoint.reviews],
+                    ['users', '👤 Üye', inspectedPoint.users],
+                    ['reports', '⚠️ Rapor', inspectedPoint.reports],
+                  ] as const
+                ).map(([catKey, catLabel, count]) => (
+                  <button
+                    key={catKey}
+                    type="button"
+                    onClick={() => onSelectCategory?.(catKey, inspectedPoint.date)}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.09] border border-white/5 transition text-left cursor-pointer"
+                  >
+                    <span className="text-gray-300 font-medium">{catLabel}</span>
+                    <span className="font-bold text-white tabular-nums">{count}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="text-xs text-gray-400 py-8 text-center">Gösterilecek veri bulunamadı.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ──────────────────── Main ──────────────────── */
 
 export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin }) {
@@ -277,7 +571,7 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
   const [ownershipRequests, setOwnershipRequests] = useState<OwnershipRequest[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [allPhotos, setAllPhotos] = useState<Photo[]>([])
-  const [chartData, setChartData] = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
+  const [dailySeries, setDailySeries] = useState<DailyActivityPoint[]>([])
 
   const [reportTypeFilter, setReportTypeFilter] = useState<ReportFilter>('all')
   const [closedReportTypeFilter, setClosedReportTypeFilter] = useState<ReportFilter>('all')
@@ -367,15 +661,48 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
       setReports(activeList)
       setClosedReports(closedList)
 
-      const counts = [0, 0, 0, 0, 0, 0, 0]
-      const now = new Date(); now.setHours(23, 59, 59, 999)
-      const recentItems = [...reviews, ...profiles, ...allPlacesData, ...allReports]
-      recentItems.forEach((item) => {
-        if (!item.created_at) return
-        const diffDays = Math.floor(Math.max(0, now.getTime() - new Date(item.created_at).getTime()) / 86_400_000)
-        if (diffDays >= 0 && diffDays < 7) counts[6 - diffDays]++
-      })
-      setChartData(counts)
+      const tz = 'Europe/Istanbul'
+      const toDayKey = (iso: string) =>
+        new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(iso))
+
+      const buckets = new Map<string, DailyActivityPoint>()
+      const now = new Date()
+
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(now)
+        d.setDate(now.getDate() - i)
+        const key = new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(d)
+        buckets.set(key, {
+          date: key,
+          shortLabel: d.toLocaleDateString('tr-TR', { timeZone: tz, day: 'numeric', month: 'short' }),
+          fullLabel: d.toLocaleDateString('tr-TR', {
+            timeZone: tz,
+            day: 'numeric',
+            month: 'long',
+            weekday: 'long',
+          }),
+          total: 0,
+          places: 0,
+          reviews: 0,
+          users: 0,
+          reports: 0,
+        })
+      }
+
+      const addToBucket = (iso: string | undefined, key: 'places' | 'reviews' | 'users' | 'reports') => {
+        if (!iso) return
+        const bucket = buckets.get(toDayKey(iso))
+        if (!bucket) return
+        bucket[key] += 1
+        bucket.total += 1
+      }
+
+      allPlacesData.forEach((p) => addToBucket(p.created_at, 'places'))
+      reviews.forEach((r) => addToBucket(r.created_at, 'reviews'))
+      profiles.forEach((u) => addToBucket(u.created_at, 'users'))
+      allReports.forEach((rep) => addToBucket(rep.created_at, 'reports'))
+
+      setDailySeries(Array.from(buckets.values()))
 
       setStats({
         totalPlaces: totalPlace.count || 0,
@@ -1091,73 +1418,18 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
           </header>
 
           {/* Chart */}
-          <div className="glass-panel p-6 rounded-3xl border border-white/10 relative overflow-hidden shadow-xl space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-4">
-              <div>
-                <h3 className="font-bold text-lg text-white flex items-center gap-2">
-                  <span>📈</span> Son 7 Günlük Aktivite Trendi
-                </h3>
-                <p className="text-xs text-gray-400">Onaylar, yorumlar, kullanıcı kayıtları ve rapor hareketleri</p>
-              </div>
-              <Badge variant="success">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5" />
-                Canlı Trend
-              </Badge>
-            </div>
-
-            <div className="relative pt-4">
-              <svg viewBox="0 0 700 160" className="w-full h-36 md:h-44 overflow-visible">
-                <defs>
-                  <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.35" />
-                    <stop offset="100%" stopColor="#fbbf24" stopOpacity="0" />
-                  </linearGradient>
-                  <linearGradient id="chartStroke" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#f59e0b" />
-                    <stop offset="50%" stopColor="#fbbf24" />
-                    <stop offset="100%" stopColor="#38bdf8" />
-                  </linearGradient>
-                </defs>
-                {[30, 70, 110].map((y) => (
-                  <line key={y} x1="0" y1={y} x2="700" y2={y} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
-                ))}
-                {(() => {
-                  const maxVal = Math.max(...chartData, 1)
-                  const pts = chartData.map((val, i) => ({
-                    x: (i * 700) / 6, y: 120 - (val / maxVal) * 90, val,
-                  }))
-                  const pathData = pts.map((p, i) => {
-                    if (i === 0) return `M ${p.x} ${p.y}`
-                    const prev = pts[i - 1]
-                    const cp1x = prev.x + (p.x - prev.x) / 2
-                    return `C ${cp1x} ${prev.y}, ${cp1x} ${p.y}, ${p.x} ${p.y}`
-                  }).join(' ')
-                  return (
-                    <>
-                      <path d={`${pathData} L 700 140 L 0 140 Z`} fill="url(#chartGradient)" />
-                      <path d={pathData} fill="none" stroke="url(#chartStroke)" strokeWidth="3.5" strokeLinecap="round" />
-                      {pts.map((pt, i) => (
-                        <g key={i} className="group cursor-pointer">
-                          <circle cx={pt.x} cy={pt.y} r="5" fill="#fff" stroke="#fbbf24" strokeWidth="2.5"
-                            className="transition-transform origin-center group-hover:scale-125" />
-                          <text x={pt.x} y={pt.y - 12}
-                            textAnchor={i === 0 ? 'start' : i === 6 ? 'end' : 'middle'}
-                            fill="#fff" fontSize="10" fontWeight="bold"
-                            className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            {pt.val} işlem
-                          </text>
-                        </g>
-                      ))}
-                    </>
-                  )
-                })()}
-              </svg>
-              <div className="flex justify-between text-[11px] text-gray-400 mt-2 font-medium px-1">
-                {['6 Gün Önce', '5 Gün Önce', '4 Gün Önce', '3 Gün Önce', '2 Gün Önce', 'Dün'].map((l) => <span key={l}>{l}</span>)}
-                <span className="text-amber-400 font-bold">Bugün</span>
-              </div>
-            </div>
-          </div>
+          <ActivityTrendChart
+            data={dailySeries}
+            onSelectCategory={(category) => {
+              const tabMap: Record<typeof category, TabId> = {
+                places: 'mekanlar',
+                reviews: 'yorumlar',
+                users: 'kullanicilar',
+                reports: 'raporlar',
+              }
+              setActiveTab(tabMap[category])
+            }}
+          />
 
           {/* Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
