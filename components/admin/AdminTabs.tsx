@@ -7,236 +7,327 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useNotificationStore } from '@/store/notifications'
 import { revalidateAppCache } from '@/app/actions/admin'
 
+/* ───────────────────────── Types ───────────────────────── */
+type TabId =
+  | 'mekanlar' | 'tum_mekanlar' | 'medya' | 'yorumlar'
+  | 'kullanicilar' | 'sahiplik' | 'raporlar' | 'kapatilan_raporlar'
+
+type ReportType = 'place' | 'review' | 'user'
+type ReportFilter = 'all' | ReportType
+
+interface Category { id: number; name: string }
+interface Place {
+  id: string; name: string; district?: string; description?: string
+  address?: string; category_id?: number; price_range?: number | null
+  user_id?: string; status?: string; created_at: string
+}
+interface Profile {
+  id: string; username?: string; created_at: string
+  total_reviews?: number; is_admin?: boolean; is_banned?: boolean; ban_reason?: string | null
+}
+interface Review {
+  id: string; rating: number; comment?: string; created_at: string
+  user_id?: string; place_id?: string
+}
+interface Report {
+  id: string; report_type: ReportType; reason?: string; status?: string
+  created_at?: string; closed_at?: string; reopened_at?: string
+  user_id?: string; place_id?: string; review_id?: string; reported_user_id?: string
+}
+interface OwnershipRequest {
+  id: string; status: string; message?: string; created_at: string
+  place_id?: string; user_id?: string
+  places?: { id: string; name: string } | { id: string; name: string }[] | null
+  profiles?: { username: string } | { username: string }[] | null
+}
+interface Photo {
+  id: string; url: string; caption?: string; created_at: string
+  user_id?: string; place_id?: string
+  profiles?: { username: string }[] | null   // ✅ sadece dizi
+  places?: { name: string }[] | null         // ✅ sadece dizi
+}
+
+interface Stats {
+  totalPlaces: number; totalUsers: number; totalReviews: number
+  totalActiveReports: number; totalClosedReports: number
+  totalPhotos: number; pendingCount: number
+}
+
+/* ──────────────────── Constants ──────────────────── */
 const CLOSED_REPORTS_STORAGE_KEY = 'istanbul_admin_closed_reports'
 
+const TABS: { id: TabId; label: string; icon: string; color: string; statKey?: keyof Stats }[] = [
+  { id: 'mekanlar', label: 'Mekan Onayları', icon: '📍', color: 'text-amber-400', statKey: 'pendingCount' },
+  { id: 'tum_mekanlar', label: 'Tüm Mekanlar', icon: '🏪', color: 'text-indigo-400', statKey: 'totalPlaces' },
+  { id: 'medya', label: 'Medya Denetimi', icon: '📸', color: 'text-pink-400', statKey: 'totalPhotos' },
+  { id: 'yorumlar', label: 'Yorumlar', icon: '💬', color: 'text-sky-400', statKey: 'totalReviews' },
+  { id: 'kullanicilar', label: 'Kullanıcılar', icon: '👥', color: 'text-emerald-400', statKey: 'totalUsers' },
+  { id: 'sahiplik', label: 'Sahiplik Talepleri', icon: '🏢', color: 'text-purple-400' },
+  { id: 'raporlar', label: 'Aktif Raporlar', icon: '⚠️', color: 'text-rose-400', statKey: 'totalActiveReports' },
+  { id: 'kapatilan_raporlar', label: 'Kapatılanlar', icon: '📁', color: 'text-teal-400', statKey: 'totalClosedReports' },
+]
+
+/* ──────────────────── Reusable Components ──────────────────── */
+
+function SectionHeader({
+  title, subtitle, badge, action,
+}: { title: string; subtitle?: string; badge?: string; action?: React.ReactNode }) {
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-5">
+      <div className="space-y-1">
+        <h3 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+          {title}
+          {badge && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-gray-300 font-semibold">
+              {badge}
+            </span>
+          )}
+        </h3>
+        {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+      </div>
+      {action}
+    </div>
+  )
+}
+
+function EmptyState({ icon, title, description }: { icon: string; title: string; description: string }) {
+  return (
+    <div className="text-center py-16 rounded-3xl border border-dashed border-white/10 bg-white/[0.02]">
+      <div className="text-5xl mb-3 opacity-80">{icon}</div>
+      <h4 className="text-base font-bold text-gray-200">{title}</h4>
+      <p className="text-sm text-gray-500 mt-1 max-w-sm mx-auto">{description}</p>
+    </div>
+  )
+}
+
+function StatCard({
+  icon, label, value, accent,
+}: { icon: string; label: string; value: number; accent: string }) {
+  return (
+    <div className="glass-card rounded-2xl p-5 border border-white/10 relative overflow-hidden group hover:border-white/20 transition">
+      <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full ${accent} opacity-10 blur-2xl group-hover:opacity-20 transition`} />
+      <div className="flex items-start justify-between relative">
+        <div className={`w-11 h-11 rounded-xl ${accent} flex items-center justify-center text-xl`}>
+          {icon}
+        </div>
+        <div className="text-3xl font-extrabold text-white tabular-nums">{value}</div>
+      </div>
+      <div className="text-[11px] font-semibold text-gray-400 mt-3 uppercase tracking-wider">{label}</div>
+    </div>
+  )
+}
+
+function Badge({
+  variant = 'neutral', children,
+}: { variant?: 'neutral' | 'success' | 'warning' | 'danger' | 'info'; children: React.ReactNode }) {
+  const styles: Record<string, string> = {
+    neutral: 'bg-white/5 text-gray-300 border-white/10',
+    success: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+    warning: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    danger: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+    info: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+  }
+  return (
+    <span className={`inline-flex items-center text-[11px] px-2.5 py-1 rounded-full font-bold border ${styles[variant]}`}>
+      {children}
+    </span>
+  )
+}
+
+function BulkBar({ count, children }: { count: number; children: React.ReactNode }) {
+  if (count === 0) return null
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="sticky top-2 z-20 p-3 rounded-2xl bg-slate-950/90 backdrop-blur-xl border border-amber-400/30 shadow-lg shadow-amber-400/5 flex flex-wrap items-center justify-between gap-3"
+    >
+      <div className="flex items-center gap-2 text-xs text-amber-200 font-semibold">
+        <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+        {count} öğe seçildi
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">{children}</div>
+    </motion.div>
+  )
+}
+
+function FilterPills<T extends string>({
+  options, value, onChange, accent = 'rose',
+}: { options: { id: T; label: string }[]; value: T; onChange: (v: T) => void; accent?: 'rose' | 'teal' }) {
+  const activeClass = accent === 'rose'
+    ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25'
+    : 'bg-teal-500 text-white shadow-lg shadow-teal-500/25'
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((o) => (
+        <button
+          key={o.id}
+          type="button"
+          onClick={() => onChange(o.id)}
+          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
+            value === o.id ? activeClass : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/* ──────────────────── Main Component ──────────────────── */
 export default function AdminTabs() {
-  const [activeTab, setActiveTab] = useState('mekanlar')
+  const router = useRouter()
+  const supabase = useMemo(() => createClient(), [])
+  const { addNotification } = useNotificationStore()
+
+  const [activeTab, setActiveTab] = useState<TabId>('mekanlar')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [pendingPlaces, setPendingPlaces] = useState<any[]>([])
-  const [allPlaces, setAllPlaces] = useState<any[]>([])
-  const [allReviews, setAllReviews] = useState<any[]>([])
-  const [allProfiles, setAllProfiles] = useState<any[]>([])
-  const [reports, setReports] = useState<any[]>([])
-  const [closedReports, setClosedReports] = useState<any[]>([])
-  const [ownershipRequests, setOwnershipRequests] = useState<any[]>([])
-  const [categories, setCategories] = useState<any[]>([])
-  const [allPhotos, setAllPhotos] = useState<any[]>([])
-  const [chartData, setChartData] = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
+  const [loading, setLoading] = useState(true)
+  const [bulkLoading, setBulkLoading] = useState(false)
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
   const [expandedPlaceId, setExpandedPlaceId] = useState<string | null>(null)
-  const [reportTypeFilter, setReportTypeFilter] = useState<'all' | 'place' | 'review' | 'user'>('all')
-  const [closedReportTypeFilter, setClosedReportTypeFilter] = useState<'all' | 'place' | 'review' | 'user'>('all')
 
-  // Toplu Seçim State'leri
+  const [pendingPlaces, setPendingPlaces] = useState<Place[]>([])
+  const [allPlaces, setAllPlaces] = useState<Place[]>([])
+  const [allReviews, setAllReviews] = useState<Review[]>([])
+  const [allProfiles, setAllProfiles] = useState<Profile[]>([])
+  const [reports, setReports] = useState<Report[]>([])
+  const [closedReports, setClosedReports] = useState<Report[]>([])
+  const [ownershipRequests, setOwnershipRequests] = useState<OwnershipRequest[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [allPhotos, setAllPhotos] = useState<Photo[]>([])
+  const [chartData, setChartData] = useState<number[]>([0, 0, 0, 0, 0, 0, 0])
+
+  const [reportTypeFilter, setReportTypeFilter] = useState<ReportFilter>('all')
+  const [closedReportTypeFilter, setClosedReportTypeFilter] = useState<ReportFilter>('all')
+
   const [selectedPendingIds, setSelectedPendingIds] = useState<string[]>([])
   const [selectedReviewIds, setSelectedReviewIds] = useState<string[]>([])
   const [selectedReportIds, setSelectedReportIds] = useState<string[]>([])
   const [selectedPhotoIds, setSelectedPhotoIds] = useState<string[]>([])
-  const [bulkLoading, setBulkLoading] = useState(false)
-  const [deletingUserId, setDeletingUserId] = useState<string | null>(null)
 
-  const [stats, setStats] = useState({
-    totalPlaces: 0,
-    totalUsers: 0,
-    totalReviews: 0,
-    totalActiveReports: 0,
-    totalClosedReports: 0,
-    totalPhotos: 0,
-    pendingCount: 0,
-  })
-  const [loading, setLoading] = useState(true)
-
-  // Arama state'leri
   const [searchUsers, setSearchUsers] = useState('')
   const [searchReports, setSearchReports] = useState('')
   const [searchClosedReports, setSearchClosedReports] = useState('')
   const [searchPlaces, setSearchPlaces] = useState('')
   const [searchOwnership, setSearchOwnership] = useState('')
 
-  const router = useRouter()
-  const supabase = useMemo(() => createClient(), [])
-  const { addNotification } = useNotificationStore()
+  const [stats, setStats] = useState<Stats>({
+    totalPlaces: 0, totalUsers: 0, totalReviews: 0,
+    totalActiveReports: 0, totalClosedReports: 0,
+    totalPhotos: 0, pendingCount: 0,
+  })
 
-  const loadSavedClosedReports = useCallback((): any[] => {
+  /* ── Persistence ── */
+  const loadSavedClosedReports = useCallback((): Report[] => {
     if (typeof window === 'undefined') return []
     try {
       const saved = localStorage.getItem(CLOSED_REPORTS_STORAGE_KEY)
       return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
+    } catch { return [] }
   }, [])
 
-  const saveClosedReports = useCallback((newClosedReports: any[]) => {
+  const saveClosedReports = useCallback((list: Report[]) => {
     if (typeof window === 'undefined') return
-    try {
-      localStorage.setItem(CLOSED_REPORTS_STORAGE_KEY, JSON.stringify(newClosedReports))
-    } catch (e) {
-      console.error('Failed to save closed reports:', e)
-    }
+    try { localStorage.setItem(CLOSED_REPORTS_STORAGE_KEY, JSON.stringify(list)) }
+    catch (e) { console.error('Failed to save closed reports:', e) }
   }, [])
 
-  const fetchData = useCallback(
-    async (silent = false) => {
-      if (!silent) setLoading(true)
-      try {
-        const [
-          cat,
-          allPlace,
-          pend,
-          totalPlace,
-          profile,
-          totalUser,
-          review,
-          totalReview,
-          allReport,
-          requestsRes,
-          photosRes,
-        ] = await Promise.all([
+  /* ── Fetch ── */
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true)
+    try {
+      const [cat, allPlace, pend, totalPlace, profile, totalUser, review, totalReview, allReport, requestsRes, photosRes] =
+        await Promise.all([
           supabase.from('categories').select('*'),
-          supabase
-            .from('places')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(200),
-          supabase
-            .from('places')
-            .select('*')
-            .eq('status', 'pending')
-            .order('created_at', { ascending: false }),
+          supabase.from('places').select('*').order('created_at', { ascending: false }).limit(200),
+          supabase.from('places').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
           supabase.from('places').select('id', { count: 'exact', head: true }),
-          supabase
-            .from('profiles')
-            .select('id, username, created_at, total_reviews, is_admin, is_banned, ban_reason')
-            .order('created_at', { ascending: false })
-            .limit(100),
+          supabase.from('profiles').select('id, username, created_at, total_reviews, is_admin, is_banned, ban_reason').order('created_at', { ascending: false }).limit(100),
           supabase.from('profiles').select('id', { count: 'exact', head: true }),
-          supabase
-            .from('reviews')
-            .select('id, rating, comment, created_at, user_id, place_id')
-            .order('created_at', { ascending: false })
-            .limit(100),
+          supabase.from('reviews').select('id, rating, comment, created_at, user_id, place_id').order('created_at', { ascending: false }).limit(100),
           supabase.from('reviews').select('id', { count: 'exact', head: true }),
-          supabase
-            .from('reports')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(200),
-          supabase
-            .from('ownership_requests')
-            .select(`
-              id, status, message, created_at, place_id, user_id,
-              places ( id, name ),
-              profiles ( username )
-            `)
-            .order('created_at', { ascending: false }),
-          supabase
-            .from('photos')
-            .select(
-              `
-              id, url, caption, created_at, user_id, place_id,
-              profiles ( username ),
-              places ( name )
-            `,
-              { count: 'exact' }
-            )
-            .order('created_at', { ascending: false })
-            .limit(100),
+          supabase.from('reports').select('*').order('created_at', { ascending: false }).limit(200),
+          supabase.from('ownership_requests').select(`id, status, message, created_at, place_id, user_id, places ( id, name ), profiles ( username )`).order('created_at', { ascending: false }),
+          supabase.from('photos').select(`id, url, caption, created_at, user_id, place_id, profiles ( username ), places ( name )`, { count: 'exact' }).order('created_at', { ascending: false }).limit(100),
         ])
 
-        const cats = cat.data || []
-        const allPlacesData = allPlace.data || []
-        const pending = pend.data || []
-        const totalPlacesCount = totalPlace.count || 0
-        const profiles = profile.data || []
-        const totalUsersCount = totalUser.count || 0
-        const reviews = review.data || []
-        const totalReviewsCount = totalReview.count || 0
-        const allReports = allReport.data || []
+      const cats = (cat.data || []) as Category[]
+      const allPlacesData = (allPlace.data || []) as Place[]
+      const pending = (pend.data || []) as Place[]
+      const profiles = (profile.data || []) as Profile[]
+      const reviews = (review.data || []) as Review[]
+      const allReports = (allReport.data || []) as Report[]
 
-        setCategories(cats)
-        setAllPlaces(allPlacesData)
-        setPendingPlaces(pending)
-        setAllProfiles(profiles)
-        setAllReviews(reviews)
-        setOwnershipRequests(requestsRes.data ?? [])
-        setAllPhotos(photosRes.data ?? [])
+      setCategories(cats)
+      setAllPlaces(allPlacesData)
+      setPendingPlaces(pending)
+      setAllProfiles(profiles)
+      setAllReviews(reviews)
+      setOwnershipRequests((requestsRes.data ?? []) as OwnershipRequest[])
+      setAllPhotos((photosRes.data ?? []) as Photo[])
 
-        const storedClosed = loadSavedClosedReports()
-        const storedClosedIds = new Set(storedClosed.map((r: any) => r.id))
+      const storedClosed = loadSavedClosedReports()
+      const storedClosedIds = new Set(storedClosed.map((r) => r.id))
+      const activeList: Report[] = []
+      const closedList: Report[] = [...storedClosed]
 
-        const activeList: any[] = []
-        const closedList: any[] = [...storedClosed]
+      allReports.forEach((r) => {
+        if (r.status === 'closed' || r.status === 'resolved' || storedClosedIds.has(r.id)) {
+          if (!closedList.find((c) => c.id === r.id)) closedList.unshift(r)
+        } else activeList.push(r)
+      })
 
-        allReports.forEach((r: any) => {
-          if (r.status === 'closed' || r.status === 'resolved' || storedClosedIds.has(r.id)) {
-            if (!closedList.find((c: any) => c.id === r.id)) {
-              closedList.unshift(r)
-            }
-          } else {
-            activeList.push(r)
-          }
-        })
+      setReports(activeList)
+      setClosedReports(closedList)
 
-        setReports(activeList)
-        setClosedReports(closedList)
+      // 7-day activity chart
+      const counts = [0, 0, 0, 0, 0, 0, 0]
+      const now = new Date(); now.setHours(23, 59, 59, 999)
+      const recentItems = [...reviews, ...profiles, ...allPlacesData, ...allReports]
+      recentItems.forEach((item) => {
+        if (!item.created_at) return
+        const diffDays = Math.floor(Math.max(0, now.getTime() - new Date(item.created_at).getTime()) / 86_400_000)
+        if (diffDays >= 0 && diffDays < 7) counts[6 - diffDays]++
+      })
+      setChartData(counts)
 
-        // Son 7 günlük aktivite hesaplama
-        const counts = [0, 0, 0, 0, 0, 0, 0]
-        const now = new Date()
-        now.setHours(23, 59, 59, 999)
-        const recentItems = [...reviews, ...profiles, ...allPlacesData, ...allReports]
-        recentItems.forEach((item) => {
-          if (!item.created_at) return
-          const date = new Date(item.created_at)
-          const diffTime = Math.max(0, now.getTime() - date.getTime())
-          const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
-          if (diffDays >= 0 && diffDays < 7) {
-            const index = 6 - diffDays
-            counts[index]++
-          }
-        })
-        setChartData(counts)
+      setStats({
+        totalPlaces: totalPlace.count || 0,
+        totalUsers: totalUser.count || 0,
+        totalReviews: totalReview.count || 0,
+        totalActiveReports: activeList.length,
+        totalClosedReports: closedList.length,
+        totalPhotos: photosRes.count || 0,
+        pendingCount: pending.length,
+      })
+    } catch (err) {
+      console.error('Admin data fetch error:', err)
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [supabase, loadSavedClosedReports])
 
-        setStats({
-          totalPlaces: totalPlacesCount,
-          totalUsers: totalUsersCount,
-          totalReviews: totalReviewsCount,
-          totalActiveReports: activeList.length,
-          totalClosedReports: closedList.length,
-          totalPhotos: photosRes.count || 0,
-          pendingCount: pending.length,
-        })
-      } catch (err) {
-        console.error('Admin data fetch error:', err)
-      } finally {
-        if (!silent) setLoading(false)
-      }
-    },
-    [supabase, loadSavedClosedReports]
-  )
+  useEffect(() => { fetchData(false) }, [fetchData])
 
-  useEffect(() => {
-    fetchData(false)
-  }, [fetchData])
-
+  /* ── Realtime ── */
   useEffect(() => {
     const channel = supabase
       .channel('admin-live-updates')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'places' }, () => fetchData(true))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => fetchData(true))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ownership_requests' }, () =>
-        fetchData(true)
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ownership_requests' }, () => fetchData(true))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, (payload) => {
-        const newReport = payload.new as any
+        const newReport = payload.new as Report
         setReports((prev) => [newReport, ...prev])
         setStats((prev) => ({ ...prev, totalActiveReports: prev.totalActiveReports + 1 }))
         addNotification('Yeni bir şikayet raporu geldi ⚠️', 'warning')
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'reports' }, (payload) => {
-        const updated = payload.new as any
+        const updated = payload.new as Report
         if (updated.status === 'closed' || updated.status === 'resolved') {
           setReports((prev) => prev.filter((r) => r.id !== updated.id))
           setClosedReports((prev) => [updated, ...prev.filter((r) => r.id !== updated.id)])
@@ -245,436 +336,297 @@ export default function AdminTabs() {
         }
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reports' }, (payload) => {
-        const deletedId = (payload.old as any)?.id
+        const deletedId = (payload.old as { id?: string })?.id
         if (!deletedId) return
         setReports((prev) => prev.filter((r) => r.id !== deletedId))
         setClosedReports((prev) => prev.filter((r) => r.id !== deletedId))
       })
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => { supabase.removeChannel(channel) }
   }, [supabase, fetchData, addNotification])
 
+  /* ── Helpers ── */
+  const refresh = async () => { await revalidateAppCache(); router.refresh() }
+
+  const toggleInArray = (setter: React.Dispatch<React.SetStateAction<string[]>>, id: string, checked: boolean) => {
+    setter((prev) => (checked ? [...prev, id] : prev.filter((x) => x !== id)))
+  }
+
+  const toggleAll = (setter: React.Dispatch<React.SetStateAction<string[]>>, ids: string[], checked: boolean) => {
+    setter(checked ? ids : [])
+  }
+
+  /* ── Place actions ── */
   const approvePlace = async (id: string) => {
     const { error } = await supabase.from('places').update({ status: 'approved' }).eq('id', id)
-    if (error) {
-      addNotification('Onaylama hatası: ' + error.message, 'warning')
-      return
-    }
+    if (error) return addNotification('Onaylama hatası: ' + error.message, 'warning')
     setPendingPlaces((prev) => prev.filter((p) => p.id !== id))
     setAllPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, status: 'approved' } : p)))
     setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - 1) }))
     addNotification('Mekan onaylandı ✅', 'success')
-    await revalidateAppCache()
-    router.refresh()
+    await refresh()
   }
 
   const rejectPlace = async (id: string) => {
     const { error } = await supabase.from('places').update({ status: 'rejected' }).eq('id', id)
-    if (error) {
-      addNotification('Reddetme hatası: ' + error.message, 'warning')
-      return
-    }
+    if (error) return addNotification('Reddetme hatası: ' + error.message, 'warning')
     setPendingPlaces((prev) => prev.filter((p) => p.id !== id))
     setAllPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, status: 'rejected' } : p)))
     setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - 1) }))
     addNotification('Mekan reddedildi ❌', 'warning')
-    await revalidateAppCache()
-    router.refresh()
+    await refresh()
   }
 
   const deletePlace = async (id: string) => {
-    if (!window.confirm('Bu mekanı silmek istediğinize emin misiniz? (Bu işlem geri alınamaz)')) return
+    if (!window.confirm('Bu mekanı silmek istediğinize emin misiniz? (Geri alınamaz)')) return
     const { error } = await supabase.from('places').delete().eq('id', id)
-    if (error) {
-      addNotification('Silme hatası: ' + error.message, 'warning')
-      return
-    }
+    if (error) return addNotification('Silme hatası: ' + error.message, 'warning')
     setAllPlaces((prev) => prev.filter((p) => p.id !== id))
     setPendingPlaces((prev) => prev.filter((p) => p.id !== id))
     setStats((prev) => ({ ...prev, totalPlaces: Math.max(0, prev.totalPlaces - 1) }))
     addNotification('Mekan kalıcı olarak silindi 🗑️', 'info')
-    await revalidateAppCache()
-    router.refresh()
+    await refresh()
   }
 
   const bulkApprovePending = async () => {
-    if (selectedPendingIds.length === 0) return
+    if (!selectedPendingIds.length) return
     setBulkLoading(true)
     try {
-      const { error } = await supabase
-        .from('places')
-        .update({ status: 'approved' })
-        .in('id', selectedPendingIds)
+      const { error } = await supabase.from('places').update({ status: 'approved' }).in('id', selectedPendingIds)
       if (error) throw error
-
       setPendingPlaces((prev) => prev.filter((p) => !selectedPendingIds.includes(p.id)))
-      setStats((prev) => ({
-        ...prev,
-        pendingCount: Math.max(0, prev.pendingCount - selectedPendingIds.length),
-      }))
+      setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - selectedPendingIds.length) }))
       addNotification(`${selectedPendingIds.length} mekan toplu onaylandı! ✅`, 'success')
       setSelectedPendingIds([])
-      await revalidateAppCache()
-      router.refresh()
-    } catch (err: any) {
-      addNotification('Toplu işlem hatası: ' + err.message, 'warning')
-    } finally {
-      setBulkLoading(false)
-    }
+      await refresh()
+    } catch (err) { addNotification('Toplu işlem hatası: ' + (err as Error).message, 'warning') }
+    finally { setBulkLoading(false) }
   }
 
   const bulkRejectPending = async () => {
-    if (selectedPendingIds.length === 0) return
+    if (!selectedPendingIds.length) return
     if (!window.confirm(`${selectedPendingIds.length} mekanı reddetmek istediğinize emin misiniz?`)) return
     setBulkLoading(true)
     try {
-      const { error } = await supabase
-        .from('places')
-        .update({ status: 'rejected' })
-        .in('id', selectedPendingIds)
+      const { error } = await supabase.from('places').update({ status: 'rejected' }).in('id', selectedPendingIds)
       if (error) throw error
-
       setPendingPlaces((prev) => prev.filter((p) => !selectedPendingIds.includes(p.id)))
-      setStats((prev) => ({
-        ...prev,
-        pendingCount: Math.max(0, prev.pendingCount - selectedPendingIds.length),
-      }))
+      setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - selectedPendingIds.length) }))
       addNotification(`${selectedPendingIds.length} mekan reddedildi ❌`, 'warning')
       setSelectedPendingIds([])
-      await revalidateAppCache()
-      router.refresh()
-    } catch (err: any) {
-      addNotification('Toplu işlem hatası: ' + err.message, 'warning')
-    } finally {
-      setBulkLoading(false)
-    }
+      await refresh()
+    } catch (err) { addNotification('Toplu işlem hatası: ' + (err as Error).message, 'warning') }
+    finally { setBulkLoading(false) }
   }
 
+  /* ── Review / Photo actions ── */
   const deleteReview = async (id: string) => {
     const { error } = await supabase.from('reviews').delete().eq('id', id)
-    if (error) {
-      addNotification('Yorum silinemedi: ' + error.message, 'warning')
-      return
-    }
+    if (error) return addNotification('Yorum silinemedi: ' + error.message, 'warning')
     setAllReviews((prev) => prev.filter((r) => r.id !== id))
     setStats((prev) => ({ ...prev, totalReviews: Math.max(0, prev.totalReviews - 1) }))
     addNotification('Yorum silindi 🗑️', 'info')
-    await revalidateAppCache()
-    router.refresh()
+    await refresh()
+  }
+
+  const bulkDeleteReviews = async () => {
+    if (!selectedReviewIds.length) return
+    if (!window.confirm(`${selectedReviewIds.length} yorumu kalıcı olarak silmek istediğinize emin misiniz?`)) return
+    setBulkLoading(true)
+    try {
+      const { error } = await supabase.from('reviews').delete().in('id', selectedReviewIds)
+      if (error) throw error
+      setAllReviews((prev) => prev.filter((r) => !selectedReviewIds.includes(r.id)))
+      setStats((prev) => ({ ...prev, totalReviews: Math.max(0, prev.totalReviews - selectedReviewIds.length) }))
+      addNotification(`${selectedReviewIds.length} yorum silindi 🗑️`, 'info')
+      setSelectedReviewIds([])
+      await refresh()
+    } catch (err) { addNotification('Toplu silme hatası: ' + (err as Error).message, 'warning') }
+    finally { setBulkLoading(false) }
   }
 
   const deletePhoto = async (id: string) => {
     if (!window.confirm('Bu görseli silmek istediğinize emin misiniz?')) return
     const { error } = await supabase.from('photos').delete().eq('id', id)
-    if (error) {
-      addNotification('Görsel silinemedi: ' + error.message, 'warning')
-      return
-    }
+    if (error) return addNotification('Görsel silinemedi: ' + error.message, 'warning')
     setAllPhotos((prev) => prev.filter((p) => p.id !== id))
     setStats((prev) => ({ ...prev, totalPhotos: Math.max(0, prev.totalPhotos - 1) }))
     addNotification('Görsel silindi 🗑️', 'info')
-    await revalidateAppCache()
-    router.refresh()
+    await refresh()
   }
 
   const bulkDeletePhotos = async () => {
-    if (selectedPhotoIds.length === 0) return
+    if (!selectedPhotoIds.length) return
     if (!window.confirm(`${selectedPhotoIds.length} görseli silmek istediğinize emin misiniz?`)) return
     setBulkLoading(true)
     try {
       const { error } = await supabase.from('photos').delete().in('id', selectedPhotoIds)
       if (error) throw error
-
       setAllPhotos((prev) => prev.filter((p) => !selectedPhotoIds.includes(p.id)))
-      setStats((prev) => ({
-        ...prev,
-        totalPhotos: Math.max(0, prev.totalPhotos - selectedPhotoIds.length),
-      }))
+      setStats((prev) => ({ ...prev, totalPhotos: Math.max(0, prev.totalPhotos - selectedPhotoIds.length) }))
       addNotification(`${selectedPhotoIds.length} görsel silindi 🗑️`, 'info')
       setSelectedPhotoIds([])
-      await revalidateAppCache()
-      router.refresh()
-    } catch (err: any) {
-      addNotification('Toplu silme hatası: ' + err.message, 'warning')
-    } finally {
-      setBulkLoading(false)
-    }
+      await refresh()
+    } catch (err) { addNotification('Toplu silme hatası: ' + (err as Error).message, 'warning') }
+    finally { setBulkLoading(false) }
   }
 
-  const bulkDeleteReviews = async () => {
-    if (selectedReviewIds.length === 0) return
-    if (!window.confirm(`${selectedReviewIds.length} yorumu kalıcı olarak silmek istediğinize emin misiniz?`))
-      return
-    setBulkLoading(true)
-    try {
-      const { error } = await supabase.from('reviews').delete().in('id', selectedReviewIds)
-      if (error) throw error
-
-      setAllReviews((prev) => prev.filter((r) => !selectedReviewIds.includes(r.id)))
-      setStats((prev) => ({
-        ...prev,
-        totalReviews: Math.max(0, prev.totalReviews - selectedReviewIds.length),
-      }))
-      addNotification(`${selectedReviewIds.length} yorum silindi 🗑️`, 'info')
-      setSelectedReviewIds([])
-      await revalidateAppCache()
-      router.refresh()
-    } catch (err: any) {
-      addNotification('Toplu silme hatası: ' + err.message, 'warning')
-    } finally {
-      setBulkLoading(false)
-    }
-  }
-
-  const bulkCloseReports = async () => {
-    if (selectedReportIds.length === 0) return
-    setBulkLoading(true)
-    try {
-      const closingReports = reports
-        .filter((r) => selectedReportIds.includes(r.id))
-        .map((r) => ({
-          ...r,
-          status: 'closed',
-          closed_at: new Date().toISOString(),
-        }))
-
-      const { error } = await supabase
-        .from('reports')
-        .update({ status: 'closed' })
-        .in('id', selectedReportIds)
-      if (error) {
-        console.warn('Report bulk close DB warning:', error.message)
-      }
-
-      const updatedActive = reports.filter((r) => !selectedReportIds.includes(r.id))
-      const updatedClosed = [...closingReports, ...closedReports]
-
-      setReports(updatedActive)
-      setClosedReports(updatedClosed)
-      saveClosedReports(updatedClosed)
-
-      setStats((prev) => ({
-        ...prev,
-        totalActiveReports: Math.max(0, prev.totalActiveReports - selectedReportIds.length),
-        totalClosedReports: prev.totalClosedReports + selectedReportIds.length,
-      }))
-
-      addNotification(`${selectedReportIds.length} rapor toplu kapatıldı 📁`, 'info')
-      setSelectedReportIds([])
-      router.refresh()
-    } catch (err: any) {
-      addNotification('Toplu kapatma hatası: ' + err.message, 'warning')
-    } finally {
-      setBulkLoading(false)
-    }
-  }
-
-  const exportReportsToCSV = () => {
-    const allReps = [...reports, ...closedReports]
-    if (allReps.length === 0) {
-      addNotification('Dışa aktarılacak rapor bulunamadı.', 'warning')
-      return
-    }
-
-    const headers = ['ID', 'Tur', 'Neden', 'Durum', 'Tarih']
-    const rows = allReps.map((r) => [
-      `"${r.id || ''}"`,
-      `"${r.report_type || ''}"`,
-      `"${(r.reason || '').replace(/"/g, '""')}"`,
-      `"${r.status === 'closed' ? 'Kapali' : 'Aktif'}"`,
-      `"${r.created_at || ''}"`,
-    ])
-
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.setAttribute('href', url)
-    link.setAttribute('download', `istanbul_raporlar_${new Date().toISOString().slice(0, 10)}.csv`)
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-    addNotification('Raporlar CSV olarak indirildi 📥', 'success')
-  }
-
-  const approveOwnership = async (requestId: string) => {
-    const request = ownershipRequests.find((r) => r.id === requestId)
-    if (!request) return
-
-    const placeId = request.place_id
-    if (!placeId) {
-      addNotification('Mekan ID bulunamadı!', 'warning')
-      return
-    }
-
-    const { error: updateError } = await supabase
-      .from('places')
-      .update({ owner_id: request.user_id })
-      .eq('id', placeId)
-
-    if (updateError) {
-      addNotification('Mekan sahibi atanamadı: ' + updateError.message, 'warning')
-      return
-    }
-
-    const { error: requestError } = await supabase
-      .from('ownership_requests')
-      .update({ status: 'approved' })
-      .eq('id', requestId)
-
-    if (requestError) {
-      addNotification('Talep onaylanamadı: ' + requestError.message, 'warning')
-      return
-    }
-
-    setOwnershipRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r))
-    )
-    addNotification('Sahiplik talebi onaylandı ✅', 'success')
-    await revalidateAppCache()
-    router.refresh()
-  }
-
-  const rejectOwnership = async (requestId: string) => {
-    const { error } = await supabase
-      .from('ownership_requests')
-      .update({ status: 'rejected' })
-      .eq('id', requestId)
-
-    if (error) {
-      addNotification('Reddetme hatası: ' + error.message, 'warning')
-      return
-    }
-
-    setOwnershipRequests((prev) =>
-      prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r))
-    )
-    addNotification('Sahiplik talebi reddedildi ❌', 'warning')
-    await revalidateAppCache()
-    router.refresh()
-  }
-
-  const closeReport = async (reportId: string) => {
-    const targetReport = reports.find((r) => r.id === reportId)
-    if (!targetReport) return
-
-    const closedItem = {
-      ...targetReport,
-      status: 'closed',
-      closed_at: new Date().toISOString(),
-    }
-
-    const { error } = await supabase.from('reports').update({ status: 'closed' }).eq('id', reportId)
-    if (error) {
-      console.warn('Close report DB warning:', error.message)
-    }
-
-    const updatedActive = reports.filter((r) => r.id !== reportId)
-    const updatedClosed = [closedItem, ...closedReports.filter((r) => r.id !== reportId)]
-
+  /* ── Report actions ── */
+  const moveToClosed = (report: Report) => {
+    const closedItem: Report = { ...report, status: 'closed', closed_at: new Date().toISOString() }
+    const updatedActive = reports.filter((r) => r.id !== report.id)
+    const updatedClosed = [closedItem, ...closedReports.filter((r) => r.id !== report.id)]
     setReports(updatedActive)
     setClosedReports(updatedClosed)
     saveClosedReports(updatedClosed)
+    return { updatedActive, updatedClosed }
+  }
 
+  const closeReport = async (reportId: string) => {
+    const target = reports.find((r) => r.id === reportId)
+    if (!target) return
+    const { error } = await supabase.from('reports').update({ status: 'closed' }).eq('id', reportId)
+    if (error) console.warn('Close report DB warning:', error.message)
+    moveToClosed(target)
     setStats((prev) => ({
       ...prev,
       totalActiveReports: Math.max(0, prev.totalActiveReports - 1),
       totalClosedReports: prev.totalClosedReports + 1,
     }))
-
     addNotification('Rapor kapatıldı ve arşive eklendi 📁', 'info')
     router.refresh()
   }
 
+  const bulkCloseReports = async () => {
+    if (!selectedReportIds.length) return
+    setBulkLoading(true)
+    try {
+      const targets = reports.filter((r) => selectedReportIds.includes(r.id))
+      const closingReports: Report[] = targets.map((r) => ({
+        ...r, status: 'closed', closed_at: new Date().toISOString(),
+      }))
+      const { error } = await supabase.from('reports').update({ status: 'closed' }).in('id', selectedReportIds)
+      if (error) console.warn('Report bulk close DB warning:', error.message)
+
+      const updatedActive = reports.filter((r) => !selectedReportIds.includes(r.id))
+      const updatedClosed = [...closingReports, ...closedReports]
+      setReports(updatedActive)
+      setClosedReports(updatedClosed)
+      saveClosedReports(updatedClosed)
+      setStats((prev) => ({
+        ...prev,
+        totalActiveReports: Math.max(0, prev.totalActiveReports - selectedReportIds.length),
+        totalClosedReports: prev.totalClosedReports + selectedReportIds.length,
+      }))
+      addNotification(`${selectedReportIds.length} rapor toplu kapatıldı 📁`, 'info')
+      setSelectedReportIds([])
+      router.refresh()
+    } catch (err) { addNotification('Toplu kapatma hatası: ' + (err as Error).message, 'warning') }
+    finally { setBulkLoading(false) }
+  }
+
   const reopenReport = async (reportId: string) => {
-    const targetReport = closedReports.find((r) => r.id === reportId)
-    if (!targetReport) return
-
-    const activeItem = {
-      ...targetReport,
-      status: 'open',
-      reopened_at: new Date().toISOString(),
-    }
-
+    const target = closedReports.find((r) => r.id === reportId)
+    if (!target) return
+    const activeItem: Report = { ...target, status: 'open', reopened_at: new Date().toISOString() }
     const { error } = await supabase.from('reports').update({ status: 'open' }).eq('id', reportId)
-    if (error) {
-      console.warn('Reopen report DB warning:', error.message)
-    }
-
+    if (error) console.warn('Reopen report DB warning:', error.message)
     const updatedClosed = closedReports.filter((r) => r.id !== reportId)
     const updatedActive = [activeItem, ...reports.filter((r) => r.id !== reportId)]
-
     setClosedReports(updatedClosed)
     setReports(updatedActive)
     saveClosedReports(updatedClosed)
-
     setStats((prev) => ({
       ...prev,
       totalActiveReports: prev.totalActiveReports + 1,
       totalClosedReports: Math.max(0, prev.totalClosedReports - 1),
     }))
-
     addNotification('Rapor tekrar aktif duruma getirildi 🔄', 'success')
     router.refresh()
   }
 
   const deleteReportPermanently = async (reportId: string) => {
-    if (!window.confirm('Bu raporu kalıcı olarak silmek istediğinize emin misiniz?')) {
-      return
-    }
-
+    if (!window.confirm('Bu raporu kalıcı olarak silmek istediğinize emin misiniz?')) return
     const { error } = await supabase.from('reports').delete().eq('id', reportId)
-    if (error) {
-      console.warn('DB delete warning:', error.message)
-    }
-
+    if (error) console.warn('DB delete warning:', error.message)
     const updatedClosed = closedReports.filter((r) => r.id !== reportId)
     const updatedActive = reports.filter((r) => r.id !== reportId)
-
     setClosedReports(updatedClosed)
     setReports(updatedActive)
     saveClosedReports(updatedClosed)
-
     setStats((prev) => ({
       ...prev,
-      totalClosedReports: Math.max(0, updatedClosed.length),
-      totalActiveReports: Math.max(0, updatedActive.length),
+      totalClosedReports: updatedClosed.length,
+      totalActiveReports: updatedActive.length,
     }))
-
     addNotification('Rapor kalıcı olarak silindi 🗑️', 'info')
     router.refresh()
   }
 
+  const exportReportsToCSV = () => {
+    const allReps = [...reports, ...closedReports]
+    if (!allReps.length) return addNotification('Dışa aktarılacak rapor bulunamadı.', 'warning')
+    const headers = ['ID', 'Tur', 'Neden', 'Durum', 'Tarih']
+    const rows = allReps.map((r) => [
+      `"${r.id || ''}"`, `"${r.report_type || ''}"`,
+      `"${(r.reason || '').replace(/"/g, '""')}"`,
+      `"${r.status === 'closed' ? 'Kapali' : 'Aktif'}"`,
+      `"${r.created_at || ''}"`,
+    ])
+    const csv = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `istanbul_raporlar_${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
+    addNotification('Raporlar CSV olarak indirildi 📥', 'success')
+  }
+
+  /* ── Ownership ── */
+  const approveOwnership = async (requestId: string) => {
+    const request = ownershipRequests.find((r) => r.id === requestId)
+    if (!request?.place_id) return addNotification('Mekan ID bulunamadı!', 'warning')
+    const { error: updateError } = await supabase.from('places').update({ owner_id: request.user_id }).eq('id', request.place_id)
+    if (updateError) return addNotification('Mekan sahibi atanamadı: ' + updateError.message, 'warning')
+    const { error: reqErr } = await supabase.from('ownership_requests').update({ status: 'approved' }).eq('id', requestId)
+    if (reqErr) return addNotification('Talep onaylanamadı: ' + reqErr.message, 'warning')
+    setOwnershipRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r)))
+    addNotification('Sahiplik talebi onaylandı ✅', 'success')
+    await refresh()
+  }
+
+  const rejectOwnership = async (requestId: string) => {
+    const { error } = await supabase.from('ownership_requests').update({ status: 'rejected' }).eq('id', requestId)
+    if (error) return addNotification('Reddetme hatası: ' + error.message, 'warning')
+    setOwnershipRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r)))
+    addNotification('Sahiplik talebi reddedildi ❌', 'warning')
+    await refresh()
+  }
+
+  /* ── Users ── */
   const banUser = async (userId: string) => {
     const reason = window.prompt('Engelleme sebebini yazın:')
     if (reason === null) return
-
-    const trimmedReason = reason.trim()
-    const { error } = await supabase
-      .from('profiles')
-      .update({ is_banned: true, ban_reason: trimmedReason })
-      .eq('id', userId)
-
-    if (error) {
-      addNotification('Engelleme hatası: ' + error.message, 'warning')
-      return
-    }
-
-    setAllProfiles((prev) =>
-      prev.map((p) => (p.id === userId ? { ...p, is_banned: true, ban_reason: trimmedReason } : p))
-    )
+    const trimmed = reason.trim()
+    const { error } = await supabase.from('profiles').update({ is_banned: true, ban_reason: trimmed }).eq('id', userId)
+    if (error) return addNotification('Engelleme hatası: ' + error.message, 'warning')
+    setAllProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, is_banned: true, ban_reason: trimmed } : p)))
     addNotification('Kullanıcı engellendi ⛔', 'warning')
     router.refresh()
   }
 
+  const unbanUser = async (userId: string) => {
+    const { error } = await supabase.from('profiles').update({ is_banned: false, ban_reason: null }).eq('id', userId)
+    if (error) return addNotification('Engel kaldırma hatası: ' + error.message, 'warning')
+    setAllProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, is_banned: false, ban_reason: null } : p)))
+    addNotification('Kullanıcının engeli kaldırıldı ✅', 'success')
+    router.refresh()
+  }
+
   const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm('Bu kullanıcıyı veritabanından silmek istediğinize emin misiniz?')) {
-      return
-    }
+    if (!window.confirm('Bu kullanıcıyı veritabanından silmek istediğinize emin misiniz?')) return
     setDeletingUserId(userId)
     try {
       const { error } = await supabase.from('profiles').delete().eq('id', userId)
@@ -683,31 +635,65 @@ export default function AdminTabs() {
       setStats((prev) => ({ ...prev, totalUsers: Math.max(0, prev.totalUsers - 1) }))
       addNotification('Kullanıcı profili silindi 🗑️', 'info')
       router.refresh()
-    } catch (err: any) {
-      addNotification('Silme hatası: ' + err.message, 'warning')
-    } finally {
-      setDeletingUserId(null)
-    }
+    } catch (err) { addNotification('Silme hatası: ' + (err as Error).message, 'warning') }
+    finally { setDeletingUserId(null) }
   }
 
-  const unbanUser = async (userId: string) => {
-    const { error } = await supabase
-      .from('profiles')
-      .update({ is_banned: false, ban_reason: null })
-      .eq('id', userId)
+  /* ── Derived ── */
+  const getCategoryName = (id?: number) => categories.find((c) => c.id === id)?.name || 'Kategori yok'
+  const formatPrice = (p?: number | null) => (!p ? 'Belirtilmemiş' : '₺'.repeat(p))
 
-    if (error) {
-      addNotification('Engel kaldırma hatası: ' + error.message, 'warning')
-      return
+  const filteredUsers = allProfiles.filter((p) =>
+    (p.username?.toLowerCase() || '').includes(searchUsers.toLowerCase()) ||
+    (p.id?.toLowerCase() || '').includes(searchUsers.toLowerCase())
+  )
+
+  const filteredReports = reports.filter((r) => {
+    const q = searchReports.toLowerCase()
+    const match = (r.reason?.toLowerCase() || '').includes(q) ||
+      (r.report_type?.toLowerCase() || '').includes(q) ||
+      (r.id?.toLowerCase() || '').includes(q)
+    return match && (reportTypeFilter === 'all' || r.report_type === reportTypeFilter)
+  })
+
+  const filteredClosedReports = closedReports.filter((r) => {
+    const q = searchClosedReports.toLowerCase()
+    const match = (r.reason?.toLowerCase() || '').includes(q) ||
+      (r.report_type?.toLowerCase() || '').includes(q) ||
+      (r.id?.toLowerCase() || '').includes(q)
+    return match && (closedReportTypeFilter === 'all' || r.report_type === closedReportTypeFilter)
+  })
+
+  const filteredPendingPlaces = pendingPlaces.filter((p) =>
+    (p.name?.toLowerCase() || '').includes(searchPlaces.toLowerCase()) ||
+    (p.district?.toLowerCase() || '').includes(searchPlaces.toLowerCase())
+  )
+
+  const filteredOwnershipRequests = ownershipRequests.filter((req) => {
+    const placeName = Array.isArray(req.places) ? req.places[0]?.name : req.places?.name
+    const userName = Array.isArray(req.profiles) ? req.profiles[0]?.username : req.profiles?.username
+    const q = searchOwnership.toLowerCase()
+    return (placeName?.toLowerCase() || '').includes(q) ||
+      (userName?.toLowerCase() || '').includes(q) ||
+      (req.status?.toLowerCase() || '').includes(q) ||
+      (req.message?.toLowerCase() || '').includes(q)
+  })
+
+  const tabCount = (id: TabId): number => {
+    const map: Record<TabId, number> = {
+      mekanlar: stats.pendingCount,
+      tum_mekanlar: stats.totalPlaces,
+      medya: stats.totalPhotos,
+      yorumlar: stats.totalReviews,
+      kullanicilar: stats.totalUsers,
+      sahiplik: ownershipRequests.filter((r) => r.status === 'pending').length,
+      raporlar: reports.length,
+      kapatilan_raporlar: closedReports.length,
     }
-
-    setAllProfiles((prev) =>
-      prev.map((p) => (p.id === userId ? { ...p, is_banned: false, ban_reason: null } : p))
-    )
-    addNotification('Kullanıcının engeli kaldırıldı ✅', 'success')
-    router.refresh()
+    return map[id] ?? 0
   }
 
+  /* ── Loading ── */
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -717,103 +703,24 @@ export default function AdminTabs() {
     )
   }
 
-  const tabs = [
-    { id: 'mekanlar', label: 'Mekan Onayları', icon: '📍', count: stats.pendingCount, color: 'text-amber-400' },
-    { id: 'tum_mekanlar', label: 'Tüm Mekanlar', icon: '🏪', count: stats.totalPlaces, color: 'text-indigo-400' },
-    { id: 'medya', label: 'Medya Denetimi', icon: '📸', count: stats.totalPhotos, color: 'text-pink-400' },
-    { id: 'yorumlar', label: 'Yorumlar', icon: '💬', count: stats.totalReviews, color: 'text-sky-400' },
-    { id: 'kullanicilar', label: 'Kullanıcılar', icon: '👥', count: stats.totalUsers, color: 'text-emerald-400' },
-    {
-      id: 'sahiplik',
-      label: 'Sahiplik Talepleri',
-      icon: '🏢',
-      count: ownershipRequests.filter((r) => r.status === 'pending').length,
-      color: 'text-purple-400',
-    },
-    { id: 'raporlar', label: 'Aktif Raporlar', icon: '⚠️', count: reports.length, color: 'text-rose-400' },
-    {
-      id: 'kapatilan_raporlar',
-      label: 'Kapatılan Raporlar',
-      icon: '📁',
-      count: closedReports.length,
-      color: 'text-teal-400',
-    },
-  ]
-
-  const getCategoryName = (categoryId: number) => {
-    return categories.find((c) => c.id === categoryId)?.name || 'Kategori yok'
-  }
-
-  const formatPrice = (priceRange: number | null) => {
-    if (!priceRange) return 'Belirtilmemiş'
-    return '₺'.repeat(priceRange)
-  }
-
-  const filteredUsers = allProfiles.filter(
-    (profile) =>
-      (profile.username?.toLowerCase() || '').includes(searchUsers.toLowerCase()) ||
-      (profile.id?.toLowerCase() || '').includes(searchUsers.toLowerCase())
-  )
-
-  const filteredReports = reports.filter((report) => {
-    const matchesSearch =
-      (report.reason?.toLowerCase() || '').includes(searchReports.toLowerCase()) ||
-      (report.report_type?.toLowerCase() || '').includes(searchReports.toLowerCase()) ||
-      (report.id?.toLowerCase() || '').includes(searchReports.toLowerCase())
-    const matchesType = reportTypeFilter === 'all' || report.report_type === reportTypeFilter
-    return matchesSearch && matchesType
-  })
-
-  const filteredClosedReports = closedReports.filter((report) => {
-    const matchesSearch =
-      (report.reason?.toLowerCase() || '').includes(searchClosedReports.toLowerCase()) ||
-      (report.report_type?.toLowerCase() || '').includes(searchClosedReports.toLowerCase()) ||
-      (report.id?.toLowerCase() || '').includes(searchClosedReports.toLowerCase())
-    const matchesType = closedReportTypeFilter === 'all' || report.report_type === closedReportTypeFilter
-    return matchesSearch && matchesType
-  })
-
-  const filteredPendingPlaces = pendingPlaces.filter(
-    (place) =>
-      (place.name?.toLowerCase() || '').includes(searchPlaces.toLowerCase()) ||
-      (place.district?.toLowerCase() || '').includes(searchPlaces.toLowerCase())
-  )
-
-  const filteredOwnershipRequests = ownershipRequests.filter((request) => {
-    const placeName = Array.isArray(request.places) ? request.places[0]?.name : request.places?.name
-    const userName = Array.isArray(request.profiles)
-      ? request.profiles[0]?.username
-      : request.profiles?.username
-    const search = searchOwnership.toLowerCase()
-    return (
-      (placeName?.toLowerCase() || '').includes(search) ||
-      (userName?.toLowerCase() || '').includes(search) ||
-      (request.status?.toLowerCase() || '').includes(search) ||
-      (request.message?.toLowerCase() || '').includes(search)
-    )
-  })
-
+  /* ── Render ── */
   return (
     <div className="relative min-h-screen">
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
             onClick={() => setMobileOpen(false)}
           />
         )}
       </AnimatePresence>
 
-      {/* Modern Sidebar */}
+      {/* Sidebar */}
       <motion.aside
         initial={false}
         animate={{ width: sidebarOpen ? 270 : 88 }}
-        className={`${
-          mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
-        } fixed left-0 top-0 h-screen z-50 bg-slate-950/95 backdrop-blur-xl border-r border-white/10 p-3 transition-transform flex flex-col justify-between`}
+        className={`${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'} fixed left-0 top-0 h-screen z-50 bg-slate-950/95 backdrop-blur-xl border-r border-white/10 p-3 transition-transform flex flex-col justify-between`}
       >
         <div>
           <div className="flex items-center justify-between p-3 border-b border-white/10 mb-2">
@@ -825,34 +732,21 @@ export default function AdminTabs() {
                 </span>
               </div>
             )}
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="hidden lg:inline-flex p-2 rounded-xl text-gray-400 hover:bg-white/10 hover:text-white transition cursor-pointer"
-              title={sidebarOpen ? 'Daralt' : 'Genişlet'}
-            >
+            <button type="button" onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="hidden lg:inline-flex p-2 rounded-xl text-gray-400 hover:bg-white/10 hover:text-white transition cursor-pointer">
               {sidebarOpen ? '◀' : '▶'}
             </button>
-            <button
-              type="button"
-              onClick={() => setMobileOpen(false)}
-              className="lg:hidden text-gray-400 hover:text-white p-2 cursor-pointer"
-            >
-              ✕
-            </button>
+            <button type="button" onClick={() => setMobileOpen(false)}
+              className="lg:hidden text-gray-400 hover:text-white p-2 cursor-pointer">✕</button>
           </div>
 
           <nav className="space-y-1.5 mt-3">
-            {tabs.map((tab) => {
+            {TABS.map((tab) => {
               const isActive = activeTab === tab.id
+              const count = tabCount(tab.id)
               return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveTab(tab.id)
-                    setMobileOpen(false)
-                  }}
+                <button key={tab.id} type="button"
+                  onClick={() => { setActiveTab(tab.id); setMobileOpen(false) }}
                   className={`w-full flex items-center gap-3.5 p-3 rounded-xl text-sm font-medium transition-all cursor-pointer ${
                     isActive
                       ? 'bg-amber-400/15 text-amber-300 border-l-4 border-amber-400 shadow-lg shadow-amber-400/10'
@@ -863,10 +757,8 @@ export default function AdminTabs() {
                   {sidebarOpen && (
                     <>
                       <span className="flex-1 text-left whitespace-nowrap">{tab.label}</span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full bg-white/5 border border-white/10 font-bold ${tab.color}`}
-                      >
-                        {tab.count}
+                      <span className={`text-xs px-2 py-0.5 rounded-full bg-white/5 border border-white/10 font-bold ${tab.color}`}>
+                        {count}
                       </span>
                     </>
                   )}
@@ -877,91 +769,75 @@ export default function AdminTabs() {
         </div>
 
         {sidebarOpen && (
-          <div className="p-3 border-t border-white/10 space-y-2">
-            <button
-              type="button"
-              onClick={() => router.push('/')}
-              className="w-full flex items-center gap-3 p-3 rounded-xl text-sm text-gray-400 hover:bg-white/5 hover:text-white transition cursor-pointer"
-            >
-              <span className="text-lg">🏠</span>
-              <span>Ana Sayfaya Dön</span>
+          <div className="p-3 border-t border-white/10">
+            <button type="button" onClick={() => router.push('/')}
+              className="w-full flex items-center gap-3 p-3 rounded-xl text-sm text-gray-400 hover:bg-white/5 hover:text-white transition cursor-pointer">
+              <span className="text-lg">🏠</span><span>Ana Sayfaya Dön</span>
             </button>
           </div>
         )}
       </motion.aside>
 
-      {/* Main Content Area */}
+      {/* Main */}
       <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:ml-[270px]' : 'lg:ml-[88px]'}`}>
-        <div className="lg:hidden p-4 flex items-center justify-between border-b border-white/10 bg-slate-950/80 backdrop-blur-md">
-          <button
-            type="button"
-            onClick={() => setMobileOpen(true)}
-            className="px-3 py-1.5 rounded-xl bg-white/10 text-gray-200 font-medium text-sm flex items-center gap-2 cursor-pointer"
-          >
+        {/* Mobile header */}
+        <div className="lg:hidden p-4 flex items-center justify-between border-b border-white/10 bg-slate-950/80 backdrop-blur-md sticky top-0 z-30">
+          <button type="button" onClick={() => setMobileOpen(true)}
+            className="px-3 py-1.5 rounded-xl bg-white/10 text-gray-200 font-medium text-sm flex items-center gap-2 cursor-pointer">
             ☰ Menü
           </button>
-          <span className="font-bold text-gray-200">🛠️ Admin Kontrol Paneli</span>
+          <span className="font-bold text-gray-200 text-sm">🛠️ Admin</span>
         </div>
 
         <div className="p-4 md:p-8 space-y-8 max-w-7xl mx-auto">
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-extrabold text-white tracking-tight">
+          <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <div className="space-y-2">
+              <h1 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight">
                 Yönetim & Denetim Paneli
               </h1>
-              <p className="text-sm text-gray-400 mt-1 flex items-center gap-2">
-                <span>
-                  🗓️ {new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
-                </span>
-                <span>•</span>
-                <span className="text-emerald-400 flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Canlı Sistem
+              <p className="text-sm text-gray-400 flex flex-wrap items-center gap-2">
+                <span>🗓️ {new Date().toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                <span className="text-gray-600">•</span>
+                <span className="text-emerald-400 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Canlı Sistem
                 </span>
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={exportReportsToCSV}
-                className="px-4 py-2 rounded-full bg-teal-500/20 border border-teal-500/40 text-xs sm:text-sm font-semibold text-teal-300 hover:bg-teal-500/30 transition flex items-center gap-1.5 shadow-md cursor-pointer"
-              >
-                <span>📥</span> Raporları CSV İndir
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={exportReportsToCSV}
+                className="px-4 py-2 rounded-full bg-teal-500/15 border border-teal-500/40 text-xs sm:text-sm font-semibold text-teal-300 hover:bg-teal-500/25 transition flex items-center gap-1.5 cursor-pointer">
+                📥 CSV İndir
               </button>
-              <button
-                type="button"
-                onClick={() => fetchData(false)}
-                className="px-4 py-2 rounded-full bg-white/10 border border-white/15 text-xs sm:text-sm font-medium text-gray-200 hover:bg-white/15 hover:border-white/25 transition flex items-center gap-2 cursor-pointer"
-              >
+              <button type="button" onClick={() => fetchData(false)}
+                className="px-4 py-2 rounded-full bg-white/10 border border-white/15 text-xs sm:text-sm font-medium text-gray-200 hover:bg-white/15 hover:border-white/25 transition flex items-center gap-2 cursor-pointer">
                 🔄 Yenile
               </button>
             </div>
-          </div>
+          </header>
 
-          {/* 7 Günlük Aktivite & Trend Grafiği */}
+          {/* Chart */}
           <div className="glass-panel p-6 rounded-3xl border border-white/10 relative overflow-hidden shadow-xl space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-4">
               <div>
                 <h3 className="font-bold text-lg text-white flex items-center gap-2">
-                  <span>📈</span> Son 7 Günlük Sistem Aktivite & Trend Analizi
+                  <span>📈</span> Son 7 Günlük Aktivite Trendi
                 </h3>
-                <p className="text-xs text-gray-400">
-                  Günlük onaylar, yeni yorumlar, kullanıcı kayıtları ve rapor hareketleri
-                </p>
+                <p className="text-xs text-gray-400">Onaylar, yorumlar, kullanıcı kayıtları ve rapor hareketleri</p>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Canlı Trend
-                </span>
-              </div>
+              <Badge variant="success">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse mr-1.5" />
+                Canlı Trend
+              </Badge>
             </div>
 
             <div className="relative pt-4">
               <svg viewBox="0 0 700 160" className="w-full h-36 md:h-44 overflow-visible">
                 <defs>
                   <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#fbbf24" stopOpacity="0.0" />
+                    <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.35" />
+                    <stop offset="100%" stopColor="#fbbf24" stopOpacity="0" />
                   </linearGradient>
                   <linearGradient id="chartStroke" x1="0" y1="0" x2="1" y2="0">
                     <stop offset="0%" stopColor="#f59e0b" />
@@ -969,59 +845,32 @@ export default function AdminTabs() {
                     <stop offset="100%" stopColor="#38bdf8" />
                   </linearGradient>
                 </defs>
-
-                <line x1="0" y1="30" x2="700" y2="30" stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
-                <line x1="0" y1="70" x2="700" y2="70" stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
-                <line x1="0" y1="110" x2="700" y2="110" stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
-
+                {[30, 70, 110].map((y) => (
+                  <line key={y} x1="0" y1={y} x2="700" y2={y} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
+                ))}
                 {(() => {
                   const maxVal = Math.max(...chartData, 1)
-                  const getX = (i: number) => (i * 700) / 6
-                  const getY = (val: number) => 120 - (val / maxVal) * 90
-                  const pts = chartData.map((val, i) => ({ x: getX(i), y: getY(val), val }))
-
-                  const pathData = pts
-                    .map((p, i) => {
-                      if (i === 0) return `M ${p.x} ${p.y}`
-                      const prev = pts[i - 1]
-                      const cp1x = prev.x + (p.x - prev.x) / 2
-                      const cp2x = cp1x
-                      return `C ${cp1x} ${prev.y}, ${cp2x} ${p.y}, ${p.x} ${p.y}`
-                    })
-                    .join(' ')
-
-                  const areaData = `${pathData} L 700 140 L 0 140 Z`
-
+                  const pts = chartData.map((val, i) => ({
+                    x: (i * 700) / 6, y: 120 - (val / maxVal) * 90, val,
+                  }))
+                  const pathData = pts.map((p, i) => {
+                    if (i === 0) return `M ${p.x} ${p.y}`
+                    const prev = pts[i - 1]
+                    const cp1x = prev.x + (p.x - prev.x) / 2
+                    return `C ${cp1x} ${prev.y}, ${cp1x} ${p.y}, ${p.x} ${p.y}`
+                  }).join(' ')
                   return (
                     <>
-                      <path d={areaData} fill="url(#chartGradient)" />
-                      <path
-                        d={pathData}
-                        fill="none"
-                        stroke="url(#chartStroke)"
-                        strokeWidth="3.5"
-                        strokeLinecap="round"
-                      />
+                      <path d={`${pathData} L 700 140 L 0 140 Z`} fill="url(#chartGradient)" />
+                      <path d={pathData} fill="none" stroke="url(#chartStroke)" strokeWidth="3.5" strokeLinecap="round" />
                       {pts.map((pt, i) => (
                         <g key={i} className="group cursor-pointer">
-                          <circle
-                            cx={pt.x}
-                            cy={pt.y}
-                            r="5"
-                            fill="#ffffff"
-                            stroke="#fbbf24"
-                            strokeWidth="2.5"
-                            className="transition-transform origin-center group-hover:scale-125"
-                          />
-                          <text
-                            x={pt.x}
-                            y={pt.y - 12}
+                          <circle cx={pt.x} cy={pt.y} r="5" fill="#fff" stroke="#fbbf24" strokeWidth="2.5"
+                            className="transition-transform origin-center group-hover:scale-125" />
+                          <text x={pt.x} y={pt.y - 12}
                             textAnchor={i === 0 ? 'start' : i === 6 ? 'end' : 'middle'}
-                            fill="#ffffff"
-                            fontSize="10"
-                            fontWeight="bold"
-                            className="opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
+                            fill="#fff" fontSize="10" fontWeight="bold"
+                            className="opacity-0 group-hover:opacity-100 transition-opacity">
                             {pt.val} işlem
                           </text>
                         </g>
@@ -1030,650 +879,265 @@ export default function AdminTabs() {
                   )
                 })()}
               </svg>
-
               <div className="flex justify-between text-[11px] text-gray-400 mt-2 font-medium px-1">
-                <span>6 Gün Önce</span>
-                <span>5 Gün Önce</span>
-                <span>4 Gün Önce</span>
-                <span>3 Gün Önce</span>
-                <span>2 Gün Önce</span>
-                <span>Dün</span>
+                {['6 Gün Önce', '5 Gün Önce', '4 Gün Önce', '3 Gün Önce', '2 Gün Önce', 'Dün'].map((l) => <span key={l}>{l}</span>)}
                 <span className="text-amber-400 font-bold">Bugün</span>
               </div>
             </div>
           </div>
 
-          {/* İstatistik Kartları */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            <div className="glass-card rounded-2xl p-5 border border-white/10 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-xl bg-amber-400/15 border border-amber-400/30 flex items-center justify-center text-2xl">
-                  📍
-                </div>
-                <div className="text-3xl font-extrabold text-white">{stats.totalPlaces}</div>
-              </div>
-              <div className="text-xs font-semibold text-gray-400 mt-3 uppercase tracking-wider">Toplam Mekan</div>
-            </div>
-
-            <div className="glass-card rounded-2xl p-5 border border-white/10 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-2xl">
-                  ⏳
-                </div>
-                <div className="text-3xl font-extrabold text-amber-400">{stats.pendingCount}</div>
-              </div>
-              <div className="text-xs font-semibold text-gray-400 mt-3 uppercase tracking-wider">Bekleyen Onay</div>
-            </div>
-
-            <div className="glass-card rounded-2xl p-5 border border-white/10 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-2xl">
-                  👥
-                </div>
-                <div className="text-3xl font-extrabold text-emerald-400">{stats.totalUsers}</div>
-              </div>
-              <div className="text-xs font-semibold text-gray-400 mt-3 uppercase tracking-wider">Kullanıcı</div>
-            </div>
-
-            <div className="glass-card rounded-2xl p-5 border border-white/10 relative overflow-hidden">
-              <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-2xl">
-                  ⚠️
-                </div>
-                <div className="text-3xl font-extrabold text-rose-400">{reports.length}</div>
-              </div>
-              <div className="text-xs font-semibold text-gray-400 mt-3 uppercase tracking-wider">Aktif Rapor</div>
-            </div>
-
-            <div className="glass-card rounded-2xl p-5 border border-white/10 relative overflow-hidden col-span-2 lg:col-span-1">
-              <div className="flex items-center justify-between">
-                <div className="w-12 h-12 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-2xl">
-                  📁
-                </div>
-                <div className="text-3xl font-extrabold text-teal-400">{closedReports.length}</div>
-              </div>
-              <div className="text-xs font-semibold text-gray-400 mt-3 uppercase tracking-wider">
-                Kapatılan Rapor
-              </div>
+          {/* Stats */}
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
+            <StatCard icon="📍" label="Toplam Mekan" value={stats.totalPlaces} accent="bg-indigo-500/20 text-indigo-300" />
+            <StatCard icon="⏳" label="Bekleyen Onay" value={stats.pendingCount} accent="bg-amber-500/20 text-amber-300" />
+            <StatCard icon="👥" label="Kullanıcı" value={stats.totalUsers} accent="bg-emerald-500/20 text-emerald-300" />
+            <StatCard icon="⚠️" label="Aktif Rapor" value={reports.length} accent="bg-rose-500/20 text-rose-300" />
+            <div className="col-span-2 lg:col-span-1">
+              <StatCard icon="📁" label="Kapatılan Rapor" value={closedReports.length} accent="bg-teal-500/20 text-teal-300" />
             </div>
           </div>
 
-          {/* Hızlı İşlem Kısayolları */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`p-3 rounded-xl text-xs font-semibold transition border cursor-pointer truncate ${
+          {/* Quick tabs */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+            {TABS.map((tab) => (
+              <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}
+                className={`p-2.5 rounded-xl text-[11px] font-semibold transition border cursor-pointer truncate ${
                   activeTab === tab.id
                     ? 'bg-amber-400/20 border-amber-400/50 text-amber-300'
                     : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'
                 }`}
+                title={tab.label}
               >
-                {tab.icon} {tab.label} ({tab.count})
+                {tab.icon} {tab.label} ({tabCount(tab.id)})
               </button>
             ))}
           </div>
 
-          {/* Tab Content Panel */}
+          {/* Content */}
           <div className="glass-panel rounded-3xl p-5 md:p-8 border border-white/10 shadow-2xl">
             <AnimatePresence mode="wait">
-              {/* TAB 1: MEKANLAR */}
+
+              {/* ── PENDING PLACES ── */}
               {activeTab === 'mekanlar' && (
-                <motion.div
-                  key="mekanlar"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  className="space-y-4"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
-                    <div>
-                      <h3 className="text-xl font-bold text-white">Bekleyen Mekan Onayları</h3>
-                      <p className="text-xs text-gray-400">
-                        Kullanıcıların eklediği ve inceleme bekleyen mekanlar
-                      </p>
-                    </div>
-                    <div className="w-full sm:w-72">
-                      <input
-                        type="text"
-                        value={searchPlaces}
-                        onChange={(e) => setSearchPlaces(e.target.value)}
-                        placeholder="Mekan adı veya ilçe ara..."
-                        className="input-field"
-                      />
-                    </div>
-                  </div>
+                <motion.div key="mekanlar" {...motionProps} className="space-y-4">
+                  <SectionHeader
+                    title="Bekleyen Mekan Onayları"
+                    subtitle="Kullanıcıların eklediği ve inceleme bekleyen mekanlar"
+                    badge={`${filteredPendingPlaces.length} adet`}
+                    action={
+                      <input type="text" value={searchPlaces} onChange={(e) => setSearchPlaces(e.target.value)}
+                        placeholder="Mekan adı veya ilçe ara..." className="input-field w-full sm:w-72" />
+                    }
+                  />
 
                   {filteredPendingPlaces.length > 0 && (
-                    <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex flex-wrap items-center justify-between gap-3">
+                    <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-between gap-3">
                       <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer font-semibold">
-                        <input
-                          type="checkbox"
-                          checked={
-                            selectedPendingIds.length === filteredPendingPlaces.length &&
-                            filteredPendingPlaces.length > 0
-                          }
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedPendingIds(filteredPendingPlaces.map((p) => p.id))
-                            } else {
-                              setSelectedPendingIds([])
-                            }
-                          }}
-                          className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20"
-                        />
+                        <input type="checkbox"
+                          checked={selectedPendingIds.length === filteredPendingPlaces.length && filteredPendingPlaces.length > 0}
+                          onChange={(e) => toggleAll(setSelectedPendingIds, filteredPendingPlaces.map((p) => p.id), e.target.checked)}
+                          className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20" />
                         <span>Tümünü Seç ({filteredPendingPlaces.length})</span>
                       </label>
-
-                      {selectedPendingIds.length > 0 && (
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={bulkApprovePending}
-                            disabled={bulkLoading}
-                            className="px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold hover:bg-emerald-500 hover:text-white transition disabled:opacity-50 cursor-pointer"
-                          >
-                            ✓ Seçilenleri Onayla ({selectedPendingIds.length})
-                          </button>
-                          <button
-                            type="button"
-                            onClick={bulkRejectPending}
-                            disabled={bulkLoading}
-                            className="px-3.5 py-1.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-bold hover:bg-rose-500 hover:text-white transition disabled:opacity-50 cursor-pointer"
-                          >
-                            ✗ Seçilenleri Reddet ({selectedPendingIds.length})
-                          </button>
-                        </div>
-                      )}
                     </div>
                   )}
+
+                  <AnimatePresence>
+                    {selectedPendingIds.length > 0 && (
+                      <BulkBar count={selectedPendingIds.length}>
+                        <button type="button" onClick={bulkApprovePending} disabled={bulkLoading}
+                          className="px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold hover:bg-emerald-500 hover:text-white transition disabled:opacity-50 cursor-pointer">
+                          ✓ Onayla ({selectedPendingIds.length})
+                        </button>
+                        <button type="button" onClick={bulkRejectPending} disabled={bulkLoading}
+                          className="px-3.5 py-1.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-bold hover:bg-rose-500 hover:text-white transition disabled:opacity-50 cursor-pointer">
+                          ✗ Reddet
+                        </button>
+                      </BulkBar>
+                    )}
+                  </AnimatePresence>
 
                   {filteredPendingPlaces.length > 0 ? (
-                    filteredPendingPlaces.map((place) => (
-                      <div
-                        key={place.id}
-                        className="border border-white/10 rounded-2xl bg-white/[0.03] overflow-hidden transition hover:border-white/20"
-                      >
-                        <div className="flex items-center p-5 hover:bg-white/5 transition text-left gap-3">
-                          <input
-                            type="checkbox"
-                            checked={selectedPendingIds.includes(place.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedPendingIds((prev) => [...prev, place.id])
-                              } else {
-                                setSelectedPendingIds((prev) => prev.filter((id) => id !== place.id))
-                              }
-                            }}
-                            className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20 shrink-0"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setExpandedPlaceId(expandedPlaceId === place.id ? null : place.id)}
-                            className="w-full flex items-center justify-between cursor-pointer"
-                          >
-                            <div className="space-y-1 text-left">
-                              <div className="font-bold text-lg text-white flex items-center gap-2">
-                                <span>📍</span> {place.name}
-                              </div>
-                              <div className="text-xs text-gray-400 flex flex-wrap items-center gap-3">
-                                <span>🏙️ {place.district}</span>
-                                <span>•</span>
-                                <span>📅 {new Date(place.created_at).toLocaleDateString('tr-TR')}</span>
-                                <span>•</span>
-                                <span className="text-amber-400 font-medium">Onay Bekliyor</span>
-                              </div>
-                            </div>
-                            <span
-                              className={`transform transition-transform text-gray-400 ${
-                                expandedPlaceId === place.id ? 'rotate-180' : ''
-                              }`}
-                            >
-                              ▼
-                            </span>
-                          </button>
-                        </div>
-
-                        <AnimatePresence>
-                          {expandedPlaceId === place.id && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2 }}
-                              className="overflow-hidden border-t border-white/10 bg-black/20"
-                            >
-                              <div className="p-5 space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                  <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
-                                    <div className="text-xs text-gray-400">Kategori</div>
-                                    <div className="text-sm font-semibold text-gray-200 mt-0.5">
-                                      {getCategoryName(place.category_id)}
-                                    </div>
-                                  </div>
-                                  <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
-                                    <div className="text-xs text-gray-400">Fiyat Aralığı</div>
-                                    <div className="text-sm font-semibold text-gray-200 mt-0.5">
-                                      {formatPrice(place.price_range)}
-                                    </div>
-                                  </div>
-                                  <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
-                                    <div className="text-xs text-gray-400">Ekleyen User ID</div>
-                                    <div className="text-xs font-mono text-gray-300 mt-0.5 truncate">
-                                      {place.user_id || 'Anonim'}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {place.description && (
-                                  <div className="bg-white/5 p-4 rounded-xl border border-white/5">
-                                    <div className="text-xs text-gray-400 mb-1">Açıklama</div>
-                                    <p className="text-sm text-gray-200">{place.description}</p>
-                                  </div>
-                                )}
-
-                                {place.address && (
-                                  <div className="text-sm text-gray-300">
-                                    📍 <strong>Adres:</strong> {place.address}
-                                  </div>
-                                )}
-
-                                <div className="flex gap-3 pt-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => approvePlace(place.id)}
-                                    className="px-6 py-2.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-sm font-semibold hover:bg-emerald-500/30 transition flex items-center gap-2 cursor-pointer"
-                                  >
-                                    ✓ Onayla & Yayına Al
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => rejectPlace(place.id)}
-                                    className="px-6 py-2.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-sm font-semibold hover:bg-rose-500/30 transition flex items-center gap-2 cursor-pointer"
-                                  >
-                                    ✗ Reddet
-                                  </button>
-                                </div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-16">
-                      <div className="text-5xl mb-3">🎉</div>
-                      <h4 className="text-lg font-bold text-gray-200">Bekleyen Mekan Yok</h4>
-                      <p className="text-sm text-gray-400 mt-1">Tüm mekan onayları incelendi ve güncel.</p>
+                    <div className="space-y-3">
+                      {filteredPendingPlaces.map((place) => (
+                        <PlaceAccordion
+                          key={place.id}
+                          place={place}
+                          expanded={expandedPlaceId === place.id}
+                          onToggle={() => setExpandedPlaceId(expandedPlaceId === place.id ? null : place.id)}
+                          checkbox={
+                            <input type="checkbox" checked={selectedPendingIds.includes(place.id)}
+                              onChange={(e) => toggleInArray(setSelectedPendingIds, place.id, e.target.checked)}
+                              className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20 shrink-0" />
+                          }
+                          categoryName={getCategoryName(place.category_id)}
+                          priceLabel={formatPrice(place.price_range)}
+                          actions={
+                            <>
+                              <button type="button" onClick={() => approvePlace(place.id)}
+                                className="px-6 py-2.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-sm font-semibold hover:bg-emerald-500/30 transition cursor-pointer">
+                                ✓ Onayla & Yayına Al
+                              </button>
+                              <button type="button" onClick={() => rejectPlace(place.id)}
+                                className="px-6 py-2.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-sm font-semibold hover:bg-rose-500/30 transition cursor-pointer">
+                                ✗ Reddet
+                              </button>
+                            </>
+                          }
+                        />
+                      ))}
                     </div>
+                  ) : (
+                    <EmptyState icon="🎉" title="Bekleyen Mekan Yok" description="Tüm mekan onayları incelendi ve güncel." />
                   )}
                 </motion.div>
               )}
 
-              {/* TAB: TÜM MEKANLAR */}
+              {/* ── ALL PLACES ── */}
               {activeTab === 'tum_mekanlar' && (
-                <motion.div
-                  key="tum_mekanlar"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  className="space-y-4"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
-                    <div>
-                      <h3 className="text-xl font-bold text-white">Tüm Mekanlar</h3>
-                      <p className="text-xs text-gray-400">Sistemde kayıtlı olan tüm mekanların listesi</p>
-                    </div>
-                  </div>
-
+                <motion.div key="tum_mekanlar" {...motionProps} className="space-y-4">
+                  <SectionHeader title="Tüm Mekanlar" subtitle="Sistemde kayıtlı olan tüm mekanların listesi" badge={`${allPlaces.length} adet`} />
                   {allPlaces.length > 0 ? (
-                    allPlaces.map((place) => (
-                      <div
-                        key={place.id}
-                        className="border border-white/10 rounded-2xl bg-white/[0.03] overflow-hidden transition hover:border-white/20"
-                      >
-                        <div className="flex items-center p-5 hover:bg-white/5 transition text-left gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setExpandedPlaceId(expandedPlaceId === place.id ? null : place.id)}
-                            className="w-full flex items-center justify-between cursor-pointer"
-                          >
-                            <div className="space-y-1 text-left">
-                              <div className="font-bold text-lg text-white flex items-center gap-2">
-                                <span>🏪</span> {place.name}
-                              </div>
-                              <div className="text-xs text-gray-400 flex flex-wrap items-center gap-3">
-                                <span>🏙️ {place.district || 'Belirtilmemiş'}</span>
-                                <span>•</span>
-                                <span>📅 {new Date(place.created_at).toLocaleDateString('tr-TR')}</span>
-                                <span>•</span>
-                                <span
-                                  className={`font-medium ${
-                                    place.status === 'approved'
-                                      ? 'text-emerald-400'
-                                      : place.status === 'rejected'
-                                      ? 'text-rose-400'
-                                      : 'text-amber-400'
-                                  }`}
-                                >
-                                  {place.status === 'approved'
-                                    ? 'Onaylı'
-                                    : place.status === 'rejected'
-                                    ? 'Reddedilmiş'
-                                    : 'Bekliyor'}
-                                </span>
-                              </div>
-                            </div>
-                            <span
-                              className={`transform transition-transform text-gray-400 ${
-                                expandedPlaceId === place.id ? 'rotate-180' : ''
-                              }`}
-                            >
-                              ▼
-                            </span>
-                          </button>
-                        </div>
-
-                        <AnimatePresence>
-                          {expandedPlaceId === place.id && (
-                            <motion.div
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2 }}
-                              className="overflow-hidden border-t border-white/10 bg-black/20"
-                            >
-                              <div className="p-5 space-y-4">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                  <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
-                                    <div className="text-xs text-gray-400">Kategori</div>
-                                    <div className="text-sm font-semibold text-gray-200 mt-0.5">
-                                      {getCategoryName(place.category_id)}
-                                    </div>
-                                  </div>
-                                  <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
-                                    <div className="text-xs text-gray-400">Fiyat Aralığı</div>
-                                    <div className="text-sm font-semibold text-gray-200 mt-0.5">
-                                      {formatPrice(place.price_range)}
-                                    </div>
-                                  </div>
-                                  <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
-                                    <div className="text-xs text-gray-400">Ekleyen User ID</div>
-                                    <div className="text-xs font-mono text-gray-300 mt-0.5 truncate">
-                                      {place.user_id || 'Anonim'}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {place.description && (
-                                  <div className="bg-white/5 p-4 rounded-xl border border-white/5">
-                                    <div className="text-xs text-gray-400 mb-1">Açıklama</div>
-                                    <p className="text-sm text-gray-200">{place.description}</p>
-                                  </div>
-                                )}
-
-                                {place.address && (
-                                  <div className="text-sm text-gray-300">
-                                    📍 <strong>Adres:</strong> {place.address}
-                                  </div>
-                                )}
-
-                                <div className="flex gap-3 pt-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => deletePlace(place.id)}
-                                    className="px-6 py-2.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-sm font-semibold hover:bg-rose-500/30 transition flex items-center gap-2 cursor-pointer"
-                                  >
-                                    🗑️ Mekanı Sil
-                                  </button>
-                                </div>
-                              </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-16">
-                      <div className="text-5xl mb-3">📭</div>
-                      <h4 className="text-lg font-bold text-gray-200">Kayıtlı Mekan Yok</h4>
-                      <p className="text-sm text-gray-400 mt-1">Sistemde henüz hiç mekan bulunmuyor.</p>
+                    <div className="space-y-3">
+                      {allPlaces.map((place) => (
+                        <PlaceAccordion key={place.id} place={place}
+                          expanded={expandedPlaceId === place.id}
+                          onToggle={() => setExpandedPlaceId(expandedPlaceId === place.id ? null : place.id)}
+                          categoryName={getCategoryName(place.category_id)}
+                          priceLabel={formatPrice(place.price_range)}
+                          statusBadge={
+                            <Badge variant={place.status === 'approved' ? 'success' : place.status === 'rejected' ? 'danger' : 'warning'}>
+                              {place.status === 'approved' ? 'Onaylı' : place.status === 'rejected' ? 'Reddedilmiş' : 'Bekliyor'}
+                            </Badge>
+                          }
+                          actions={
+                            <button type="button" onClick={() => deletePlace(place.id)}
+                              className="px-6 py-2.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-sm font-semibold hover:bg-rose-500/30 transition cursor-pointer">
+                              🗑️ Mekanı Sil
+                            </button>
+                          }
+                        />
+                      ))}
                     </div>
+                  ) : (
+                    <EmptyState icon="📭" title="Kayıtlı Mekan Yok" description="Sistemde henüz hiç mekan bulunmuyor." />
                   )}
                 </motion.div>
               )}
 
-              {/* TAB: MEDYA DENETİMİ */}
+              {/* ── MEDIA ── */}
               {activeTab === 'medya' && (
-                <motion.div
-                  key="medya"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  className="space-y-4"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
-                    <div>
-                      <h3 className="text-xl font-bold text-white">Medya Denetimi</h3>
-                      <p className="text-xs text-gray-400">
-                        Kullanıcılar tarafından yüklenen son mekan fotoğrafları
-                      </p>
-                    </div>
-                    {selectedPhotoIds.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={bulkDeletePhotos}
-                        disabled={bulkLoading}
-                        className="px-4 py-2 bg-rose-500/20 text-rose-300 rounded-xl text-sm font-bold border border-rose-500/30 hover:bg-rose-500/30 transition flex items-center gap-2 cursor-pointer"
-                      >
-                        {bulkLoading ? <span className="animate-spin">⌛</span> : '🗑️'} Seçilenleri Sil (
-                        {selectedPhotoIds.length})
-                      </button>
-                    )}
-                  </div>
+                <motion.div key="medya" {...motionProps} className="space-y-4">
+                  <SectionHeader title="Medya Denetimi" subtitle="Kullanıcılar tarafından yüklenen son mekan fotoğrafları" badge={`${allPhotos.length} adet`} />
+                  <BulkBar count={selectedPhotoIds.length}>
+                    <button type="button" onClick={bulkDeletePhotos} disabled={bulkLoading}
+                      className="px-3.5 py-1.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-bold hover:bg-rose-500 hover:text-white transition disabled:opacity-50 cursor-pointer">
+                      🗑️ Seçilenleri Sil ({selectedPhotoIds.length})
+                    </button>
+                  </BulkBar>
 
                   {allPhotos.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 md:gap-4">
                       {allPhotos.map((photo) => (
-                        <div
-                          key={photo.id}
-                          className="relative group rounded-2xl overflow-hidden border border-white/10 bg-black/40 aspect-square"
-                        >
-                          <img
-                            src={photo.url}
-                            alt={photo.caption || 'Mekan fotoğrafı'}
-                            className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition duration-300"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 opacity-0 group-hover:opacity-100 transition duration-300 pointer-events-none" />
-
+                        <div key={photo.id} className="relative group rounded-2xl overflow-hidden border border-white/10 bg-black/40 aspect-square">
+                          <img src={photo.url} alt={photo.caption || 'Mekan fotoğrafı'} loading="lazy"
+                            className="w-full h-full object-cover opacity-85 group-hover:opacity-100 group-hover:scale-105 transition duration-500" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-70 group-hover:opacity-100 transition pointer-events-none" />
                           <div className="absolute top-2 left-2 z-10">
-                            <input
-                              type="checkbox"
-                              checked={selectedPhotoIds.includes(photo.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) setSelectedPhotoIds((prev) => [...prev, photo.id])
-                                else setSelectedPhotoIds((prev) => prev.filter((id) => id !== photo.id))
-                              }}
-                              className="w-5 h-5 rounded bg-black/50 border-white/20 text-pink-500 focus:ring-pink-500/50 cursor-pointer"
-                            />
+                            <input type="checkbox" checked={selectedPhotoIds.includes(photo.id)}
+                              onChange={(e) => toggleInArray(setSelectedPhotoIds, photo.id, e.target.checked)}
+                              className="w-5 h-5 rounded bg-black/60 border-white/20 text-pink-500 focus:ring-pink-500/50 cursor-pointer" />
                           </div>
-
-                          <button
-                            type="button"
-                            onClick={() => deletePhoto(photo.id)}
-                            className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full bg-rose-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition hover:bg-rose-500 hover:scale-110 cursor-pointer"
-                          >
+                          <button type="button" onClick={() => deletePhoto(photo.id)}
+                            className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full bg-rose-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition hover:bg-rose-500 hover:scale-110 cursor-pointer">
                             🗑️
                           </button>
-
-                          <div className="absolute bottom-0 left-0 right-0 p-3 translate-y-full group-hover:translate-y-0 transition duration-300 z-10">
-                            <div className="text-xs font-semibold text-white truncate drop-shadow-md">
-                              {photo.places?.name || 'Bilinmeyen Mekan'}
-                            </div>
-                            <div className="text-[10px] text-gray-300 truncate drop-shadow-md">
-                              👤 @{photo.profiles?.username || 'Anonim'}
-                            </div>
+                          <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
+                            <div className="text-xs font-semibold text-white truncate">{photo.places?.[0]?.name || 'Bilinmeyen Mekan'}</div>
+                            <div className="text-[10px] text-gray-300 truncate">👤 @{photo.profiles?.[0]?.username || 'Anonim'}</div>
                           </div>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <div className="text-center py-16 glass-card rounded-3xl border border-white/5">
-                      <div className="text-5xl mb-3">📸</div>
-                      <h4 className="text-lg font-bold text-gray-200">Hiç Fotoğraf Yok</h4>
-                      <p className="text-sm text-gray-400 mt-1">
-                        Sistemde henüz yüklenmiş bir mekan fotoğrafı bulunmuyor.
-                      </p>
-                    </div>
+                    <EmptyState icon="📸" title="Hiç Fotoğraf Yok" description="Sistemde henüz yüklenmiş bir mekan fotoğrafı bulunmuyor." />
                   )}
                 </motion.div>
               )}
 
-              {/* TAB 2: YORUMLAR */}
+              {/* ── REVIEWS ── */}
               {activeTab === 'yorumlar' && (
-                <motion.div
-                  key="yorumlar"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  className="space-y-4"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h3 className="text-xl font-bold text-white">Yorum Yönetimi</h3>
-                      <p className="text-xs text-gray-400">Kullanıcıların yaptığı en son yorumlar</p>
-                    </div>
-                    <span className="text-xs px-3 py-1 rounded-full bg-sky-500/20 text-sky-300 font-bold">
-                      {allReviews.length} Yorum
-                    </span>
-                  </div>
-
+                <motion.div key="yorumlar" {...motionProps} className="space-y-4">
+                  <SectionHeader title="Yorum Yönetimi" subtitle="Kullanıcıların yaptığı en son yorumlar" badge={`${allReviews.length} yorum`} />
                   {allReviews.length > 0 && (
-                    <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex flex-wrap items-center justify-between gap-3">
+                    <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-between gap-3">
                       <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer font-semibold">
-                        <input
-                          type="checkbox"
+                        <input type="checkbox"
                           checked={selectedReviewIds.length === allReviews.length && allReviews.length > 0}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedReviewIds(allReviews.map((r) => r.id))
-                            } else {
-                              setSelectedReviewIds([])
-                            }
-                          }}
-                          className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20"
-                        />
+                          onChange={(e) => toggleAll(setSelectedReviewIds, allReviews.map((r) => r.id), e.target.checked)}
+                          className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20" />
                         <span>Tümünü Seç ({allReviews.length})</span>
                       </label>
-
-                      {selectedReviewIds.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={bulkDeleteReviews}
-                          disabled={bulkLoading}
-                          className="px-3.5 py-1.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-bold hover:bg-rose-500 hover:text-white transition disabled:opacity-50 cursor-pointer"
-                        >
-                          🗑️ Seçilen Yorumları Sil ({selectedReviewIds.length})
-                        </button>
-                      )}
                     </div>
                   )}
+                  <BulkBar count={selectedReviewIds.length}>
+                    <button type="button" onClick={bulkDeleteReviews} disabled={bulkLoading}
+                      className="px-3.5 py-1.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-xs font-bold hover:bg-rose-500 hover:text-white transition disabled:opacity-50 cursor-pointer">
+                      🗑️ Seçilenleri Sil ({selectedReviewIds.length})
+                    </button>
+                  </BulkBar>
 
                   {allReviews.length > 0 ? (
-                    allReviews.map((review) => (
-                      <div
-                        key={review.id}
-                        className="border border-white/10 rounded-2xl p-5 bg-white/[0.03] hover:bg-white/[0.06] transition flex flex-col md:flex-row md:items-center justify-between gap-4"
-                      >
-                        <div className="flex items-start gap-3 flex-1">
-                          <input
-                            type="checkbox"
-                            checked={selectedReviewIds.includes(review.id)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedReviewIds((prev) => [...prev, review.id])
-                              } else {
-                                setSelectedReviewIds((prev) => prev.filter((id) => id !== review.id))
-                              }
-                            }}
-                            className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20 mt-1 shrink-0"
-                          />
-                          <div className="space-y-2 flex-1">
-                            <div className="flex items-center gap-3">
-                              <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold">
-                                ⭐ {review.rating} Puan
-                              </span>
-                              <span className="text-xs text-gray-400">
-                                📅 {new Date(review.created_at).toLocaleDateString('tr-TR')}
-                              </span>
-                            </div>
-                            <p className="text-sm text-gray-200 font-medium leading-relaxed">
-                              {review.comment}
-                            </p>
-                            <div className="text-xs font-mono text-gray-500">
-                              User: {review.user_id?.slice(0, 10)}... • Place:{' '}
-                              {review.place_id?.slice(0, 10)}...
+                    <div className="space-y-3">
+                      {allReviews.map((review) => (
+                        <div key={review.id}
+                          className="border border-white/10 rounded-2xl p-4 bg-white/[0.03] hover:bg-white/[0.06] transition flex flex-col md:flex-row md:items-center justify-between gap-3">
+                          <div className="flex items-start gap-3 flex-1">
+                            <input type="checkbox" checked={selectedReviewIds.includes(review.id)}
+                              onChange={(e) => toggleInArray(setSelectedReviewIds, review.id, e.target.checked)}
+                              className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20 mt-1 shrink-0" />
+                            <div className="space-y-2 flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge variant="warning">⭐ {review.rating} Puan</Badge>
+                                <span className="text-xs text-gray-400">📅 {new Date(review.created_at).toLocaleDateString('tr-TR')}</span>
+                              </div>
+                              <p className="text-sm text-gray-200 font-medium leading-relaxed">{review.comment}</p>
+                              <div className="text-[11px] font-mono text-gray-500 truncate">
+                                User: {review.user_id?.slice(0, 10)}... • Place: {review.place_id?.slice(0, 10)}...
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <div>
-                          <button
-                            type="button"
-                            onClick={() => deleteReview(review.id)}
-                            className="px-4 py-2 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 text-xs font-semibold hover:bg-rose-500/25 transition cursor-pointer"
-                          >
-                            🗑️ Yorumu Sil
+                          <button type="button" onClick={() => deleteReview(review.id)}
+                            className="px-4 py-2 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 text-xs font-semibold hover:bg-rose-500/25 transition cursor-pointer shrink-0">
+                            🗑️ Sil
                           </button>
                         </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-16">
-                      <div className="text-5xl mb-3">💬</div>
-                      <p className="text-gray-400">Kayıtlı yorum bulunamadı.</p>
+                      ))}
                     </div>
+                  ) : (
+                    <EmptyState icon="💬" title="Yorum Yok" description="Kayıtlı yorum bulunamadı." />
                   )}
                 </motion.div>
               )}
 
-              {/* TAB 3: KULLANICILAR */}
+              {/* ── USERS ── */}
               {activeTab === 'kullanicilar' && (
-                <motion.div
-                  key="kullanicilar"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  className="space-y-4"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
-                    <div>
-                      <h3 className="text-xl font-bold text-white">Kullanıcı Yönetimi</h3>
-                      <p className="text-xs text-gray-400">Kayıtlı profiller ve ceza durumları</p>
-                    </div>
-                    <div className="w-full sm:w-72">
-                      <input
-                        type="text"
-                        value={searchUsers}
-                        onChange={(e) => setSearchUsers(e.target.value)}
-                        placeholder="Kullanıcı adı veya ID ara..."
-                        className="input-field"
-                      />
-                    </div>
-                  </div>
+                <motion.div key="kullanicilar" {...motionProps} className="space-y-4">
+                  <SectionHeader title="Kullanıcı Yönetimi" subtitle="Kayıtlı profiller ve ceza durumları" badge={`${filteredUsers.length} kişi`}
+                    action={<input type="text" value={searchUsers} onChange={(e) => setSearchUsers(e.target.value)}
+                      placeholder="Kullanıcı adı veya ID ara..." className="input-field w-full sm:w-72" />} />
 
                   {filteredUsers.length > 0 ? (
                     <div className="overflow-x-auto rounded-2xl border border-white/10">
                       <table className="w-full text-sm text-left">
                         <thead>
-                          <tr className="bg-white/5 border-b border-white/10 text-gray-400">
+                          <tr className="bg-white/5 border-b border-white/10 text-gray-400 text-[11px] uppercase tracking-wider">
                             <th className="p-4 font-semibold">Kullanıcı</th>
-                            <th className="p-4 font-semibold">Yorum Sayısı</th>
-                            <th className="p-4 font-semibold">Kayıt Tarihi</th>
+                            <th className="p-4 font-semibold">Yorum</th>
+                            <th className="p-4 font-semibold">Kayıt</th>
                             <th className="p-4 font-semibold">Yetki</th>
                             <th className="p-4 font-semibold">Durum</th>
-                            <th className="p-4 font-semibold text-right">Kayıt Silme</th>
+                            <th className="p-4 font-semibold text-right">Sil</th>
                             <th className="p-4 font-semibold text-right">İşlem</th>
                           </tr>
                         </thead>
@@ -1685,58 +1149,32 @@ export default function AdminTabs() {
                                   <div className="w-8 h-8 rounded-full bg-amber-400/15 text-amber-300 font-bold flex items-center justify-center text-xs">
                                     {(profile.username?.[0] || 'K').toUpperCase()}
                                   </div>
-                                  <span>{profile.username || 'Anonim'}</span>
+                                  <span className="truncate max-w-[140px]">{profile.username || 'Anonim'}</span>
                                 </div>
                               </td>
                               <td className="p-4 text-gray-300">{profile.total_reviews || 0}</td>
-                              <td className="p-4 text-gray-400">
-                                {new Date(profile.created_at).toLocaleDateString('tr-TR')}
+                              <td className="p-4 text-gray-400 whitespace-nowrap">{new Date(profile.created_at).toLocaleDateString('tr-TR')}</td>
+                              <td className="p-4">
+                                {profile.is_admin ? <Badge variant="success">Admin</Badge> : <span className="text-gray-500 text-xs">Üye</span>}
                               </td>
                               <td className="p-4">
-                                {profile.is_admin ? (
-                                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold">
-                                    Admin
-                                  </span>
-                                ) : (
-                                  <span className="text-gray-500 text-xs">Üye</span>
-                                )}
-                              </td>
-                              <td className="p-4">
-                                {profile.is_banned ? (
-                                  <span className="px-2.5 py-1 rounded-full bg-rose-500/20 text-rose-300 text-xs font-bold">
-                                    Engelli
-                                  </span>
-                                ) : (
-                                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-medium">
-                                    Aktif
-                                  </span>
-                                )}
+                                {profile.is_banned ? <Badge variant="danger">Engelli</Badge> : <Badge variant="success">Aktif</Badge>}
                               </td>
                               <td className="p-4 text-right">
-                                <button
-                                  type="button"
-                                  className="px-3.5 py-1.5 bg-rose-500/15 text-rose-300 border border-rose-500/30 rounded-full text-xs font-semibold hover:bg-rose-500/25 transition cursor-pointer"
-                                  onClick={() => handleDeleteUser(profile.id)}
-                                  disabled={deletingUserId === profile.id}
-                                >
-                                  {deletingUserId === profile.id ? 'Siliniyor...' : '🗑️ Profili Sil'}
+                                <button type="button" onClick={() => handleDeleteUser(profile.id)} disabled={deletingUserId === profile.id}
+                                  className="px-3 py-1.5 bg-rose-500/15 text-rose-300 border border-rose-500/30 rounded-full text-xs font-semibold hover:bg-rose-500/25 transition disabled:opacity-50 cursor-pointer whitespace-nowrap">
+                                  {deletingUserId === profile.id ? 'Siliniyor...' : '🗑️ Sil'}
                                 </button>
                               </td>
                               <td className="p-4 text-right">
                                 {profile.is_banned ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => unbanUser(profile.id)}
-                                    className="px-3.5 py-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-semibold hover:bg-emerald-500/30 transition cursor-pointer"
-                                  >
+                                  <button type="button" onClick={() => unbanUser(profile.id)}
+                                    className="px-3 py-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-semibold hover:bg-emerald-500/30 transition cursor-pointer whitespace-nowrap">
                                     Banı Kaldır
                                   </button>
                                 ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => banUser(profile.id)}
-                                    className="px-4 py-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-semibold hover:bg-rose-500/30 transition cursor-pointer"
-                                  >
+                                  <button type="button" onClick={() => banUser(profile.id)}
+                                    className="px-3 py-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-semibold hover:bg-rose-500/30 transition cursor-pointer whitespace-nowrap">
                                     Banla
                                   </button>
                                 )}
@@ -1747,451 +1185,315 @@ export default function AdminTabs() {
                       </table>
                     </div>
                   ) : (
-                    <div className="text-center py-16">
-                      <div className="text-5xl mb-3">👥</div>
-                      <p className="text-gray-400">Kullanıcı bulunamadı.</p>
-                    </div>
+                    <EmptyState icon="👥" title="Kullanıcı Yok" description="Kullanıcı bulunamadı." />
                   )}
                 </motion.div>
               )}
 
-              {/* TAB 4: SAHİPLİK TALEPLERİ */}
+              {/* ── OWNERSHIP ── */}
               {activeTab === 'sahiplik' && (
-                <motion.div
-                  key="sahiplik"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  className="space-y-4"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
-                    <div>
-                      <h3 className="text-xl font-bold text-white">Mekan Sahiplik Talepleri</h3>
-                      <p className="text-xs text-gray-400">
-                        İşletme sahiplerinin mekan sahiplenme başvuruları
-                      </p>
-                    </div>
-                    <div className="w-full sm:w-72">
-                      <input
-                        type="text"
-                        value={searchOwnership}
-                        onChange={(e) => setSearchOwnership(e.target.value)}
-                        placeholder="Mekan veya kullanıcı ara..."
-                        className="input-field"
-                      />
-                    </div>
-                  </div>
+                <motion.div key="sahiplik" {...motionProps} className="space-y-4">
+                  <SectionHeader title="Mekan Sahiplik Talepleri" subtitle="İşletme sahiplerinin mekan sahiplenme başvuruları"
+                    action={<input type="text" value={searchOwnership} onChange={(e) => setSearchOwnership(e.target.value)}
+                      placeholder="Mekan veya kullanıcı ara..." className="input-field w-full sm:w-72" />} />
 
                   {filteredOwnershipRequests.length > 0 ? (
-                    filteredOwnershipRequests.map((request) => {
-                      const placeName = Array.isArray(request.places)
-                        ? request.places[0]?.name
-                        : request.places?.name
-                      const userName = Array.isArray(request.profiles)
-                        ? request.profiles[0]?.username
-                        : request.profiles?.username
-                      return (
-                        <div
-                          key={request.id}
-                          className="border border-white/10 rounded-2xl p-5 bg-white/[0.03]"
-                        >
-                          <div className="flex items-center justify-between flex-wrap gap-3">
-                            <div>
-                              <p className="font-bold text-lg text-white">
-                                🏢 {placeName || 'Bilinmeyen Mekan'}
-                              </p>
-                              <p className="text-xs text-gray-400 mt-1">
-                                Başvuran:{' '}
-                                <span className="text-amber-300 font-semibold">
-                                  {userName || 'Anonim'}
-                                </span>{' '}
-                                • {new Date(request.created_at).toLocaleDateString('tr-TR')}
-                              </p>
+                    <div className="space-y-3">
+                      {filteredOwnershipRequests.map((request) => {
+                        const placeName = Array.isArray(request.places) ? request.places[0]?.name : request.places?.name
+                        const userName = Array.isArray(request.profiles) ? request.profiles[0]?.username : request.profiles?.username
+                        return (
+                          <div key={request.id} className="border border-white/10 rounded-2xl p-5 bg-white/[0.03]">
+                            <div className="flex items-start justify-between flex-wrap gap-3">
+                              <div>
+                                <p className="font-bold text-lg text-white">🏢 {placeName || 'Bilinmeyen Mekan'}</p>
+                                <p className="text-xs text-gray-400 mt-1">
+                                  Başvuran: <span className="text-amber-300 font-semibold">{userName || 'Anonim'}</span>
+                                  <span className="mx-2">•</span>
+                                  {new Date(request.created_at).toLocaleDateString('tr-TR')}
+                                </p>
+                              </div>
+                              <Badge variant={request.status === 'approved' ? 'success' : request.status === 'rejected' ? 'danger' : 'warning'}>
+                                {request.status === 'pending' ? 'Bekliyor' : request.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}
+                              </Badge>
                             </div>
-                            <div>
-                              <span
-                                className={`text-xs px-3 py-1 rounded-full font-bold uppercase ${
-                                  request.status === 'approved'
-                                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                                    : request.status === 'rejected'
-                                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                                }`}
-                              >
-                                {request.status === 'pending'
-                                  ? 'Bekliyor'
-                                  : request.status === 'approved'
-                                  ? 'Onaylandı'
-                                  : 'Reddedildi'}
-                              </span>
-                            </div>
+                            {request.message && (
+                              <div className="mt-3 p-3 bg-white/5 rounded-xl border border-white/5 text-sm text-gray-300 italic">
+                                💬 "{request.message}"
+                              </div>
+                            )}
+                            {request.status === 'pending' && (
+                              <div className="flex gap-2 mt-4">
+                                <button type="button" onClick={() => approveOwnership(request.id)}
+                                  className="px-5 py-2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-semibold hover:bg-emerald-500/30 transition cursor-pointer">
+                                  ✓ Onayla
+                                </button>
+                                <button type="button" onClick={() => rejectOwnership(request.id)}
+                                  className="px-5 py-2 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-semibold hover:bg-rose-500/30 transition cursor-pointer">
+                                  ✗ Reddet
+                                </button>
+                              </div>
+                            )}
                           </div>
-
-                          {request.message && (
-                            <div className="mt-3 p-3 bg-white/5 rounded-xl border border-white/5 text-sm text-gray-300">
-                              💬 <em>"{request.message}"</em>
-                            </div>
-                          )}
-
-                          {request.status === 'pending' && (
-                            <div className="flex gap-3 mt-4">
-                              <button
-                                type="button"
-                                onClick={() => approveOwnership(request.id)}
-                                className="px-5 py-2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-semibold hover:bg-emerald-500/30 transition cursor-pointer"
-                              >
-                                ✓ Talebi Onayla
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => rejectOwnership(request.id)}
-                                className="px-5 py-2 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-semibold hover:bg-rose-500/30 transition cursor-pointer"
-                              >
-                                ✗ Reddet
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })
-                  ) : (
-                    <div className="text-center py-16">
-                      <div className="text-5xl mb-3">🏢</div>
-                      <p className="text-gray-400">Sahiplik talebi bulunamadı.</p>
+                        )
+                      })}
                     </div>
+                  ) : (
+                    <EmptyState icon="🏢" title="Sahiplik Talebi Yok" description="İncelenecek sahiplik talebi bulunmuyor." />
                   )}
                 </motion.div>
               )}
 
-              {/* TAB 5: AKTİF RAPORLAR */}
+              {/* ── ACTIVE REPORTS ── */}
               {activeTab === 'raporlar' && (
-                <motion.div
-                  key="raporlar"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  className="space-y-5"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                        <span className="text-rose-400">⚠️</span> Aktif Şikayet Raporları
-                      </h3>
-                      <p className="text-xs text-gray-400">
-                        İnceleme ve müdahale bekleyen açık şikayetler
-                      </p>
-                    </div>
-                    <div className="w-full sm:w-72">
-                      <input
-                        type="text"
-                        value={searchReports}
-                        onChange={(e) => setSearchReports(e.target.value)}
-                        placeholder="Rapor ID, sebep veya tip ara..."
-                        className="input-field"
-                      />
-                    </div>
-                  </div>
+                <motion.div key="raporlar" {...motionProps} className="space-y-4">
+                  <SectionHeader title="Aktif Şikayet Raporları" subtitle="İnceleme ve müdahale bekleyen açık şikayetler"
+                    badge={`${filteredReports.length} aktif`}
+                    action={<input type="text" value={searchReports} onChange={(e) => setSearchReports(e.target.value)}
+                      placeholder="Rapor ID, sebep veya tip ara..." className="input-field w-full sm:w-72" />} />
 
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { id: 'all', label: 'Tüm Raporlar' },
-                      { id: 'place', label: '📍 Mekan Raporları' },
-                      { id: 'review', label: '💬 Yorum Raporları' },
-                      { id: 'user', label: '👤 Kullanıcı Raporları' },
-                    ].map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => setReportTypeFilter(f.id as any)}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
-                          reportTypeFilter === f.id
-                            ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/25'
-                            : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white'
-                        }`}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
+                  <FilterPills
+                    accent="rose"
+                    value={reportTypeFilter}
+                    onChange={setReportTypeFilter}
+                    options={[
+                      { id: 'all', label: 'Tümü' },
+                      { id: 'place', label: '📍 Mekan' },
+                      { id: 'review', label: '💬 Yorum' },
+                      { id: 'user', label: '👤 Kullanıcı' },
+                    ]}
+                  />
 
                   {filteredReports.length > 0 && (
-                    <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex flex-wrap items-center justify-between gap-3">
+                    <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-between gap-3">
                       <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer font-semibold">
-                        <input
-                          type="checkbox"
-                          checked={
-                            selectedReportIds.length === filteredReports.length &&
-                            filteredReports.length > 0
-                          }
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedReportIds(filteredReports.map((r) => r.id))
-                            } else {
-                              setSelectedReportIds([])
-                            }
-                          }}
-                          className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20"
-                        />
+                        <input type="checkbox"
+                          checked={selectedReportIds.length === filteredReports.length && filteredReports.length > 0}
+                          onChange={(e) => toggleAll(setSelectedReportIds, filteredReports.map((r) => r.id), e.target.checked)}
+                          className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20" />
                         <span>Tümünü Seç ({filteredReports.length})</span>
                       </label>
-
-                      {selectedReportIds.length > 0 && (
-                        <button
-                          type="button"
-                          onClick={bulkCloseReports}
-                          disabled={bulkLoading}
-                          className="px-3.5 py-1.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/40 text-xs font-bold hover:bg-teal-500 hover:text-white transition disabled:opacity-50 cursor-pointer"
-                        >
-                          📁 Seçilen Raporları Kapat ({selectedReportIds.length})
-                        </button>
-                      )}
                     </div>
                   )}
+                  <BulkBar count={selectedReportIds.length}>
+                    <button type="button" onClick={bulkCloseReports} disabled={bulkLoading}
+                      className="px-3.5 py-1.5 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/40 text-xs font-bold hover:bg-teal-500 hover:text-white transition disabled:opacity-50 cursor-pointer">
+                      📁 Kapat ({selectedReportIds.length})
+                    </button>
+                  </BulkBar>
 
                   {filteredReports.length > 0 ? (
-                    filteredReports.map((report) => {
-                      const reportedUser = allProfiles.find((p) => p.id === report.reported_user_id)
-                      return (
-                        <div
-                          key={report.id}
-                          className="border border-rose-500/20 rounded-2xl p-5 bg-gradient-to-br from-rose-950/20 to-slate-900/60 shadow-lg"
-                        >
-                          <div className="flex items-center justify-between flex-wrap gap-3">
-                            <div className="flex items-center gap-2.5">
-                              <input
-                                type="checkbox"
-                                checked={selectedReportIds.includes(report.id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedReportIds((prev) => [...prev, report.id])
-                                  } else {
-                                    setSelectedReportIds((prev) => prev.filter((id) => id !== report.id))
-                                  }
-                                }}
-                                className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20 shrink-0"
-                              />
-                              <span className="text-xs px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold">
-                                {report.report_type === 'place'
-                                  ? '📍 Mekan'
-                                  : report.report_type === 'review'
-                                  ? '💬 Yorum'
-                                  : '👤 Kullanıcı'}
-                              </span>
-                              <span className="text-xs font-mono text-gray-400 bg-white/5 px-2 py-0.5 rounded">
-                                ID: {report.id?.slice(0, 8)}
-                              </span>
-                              <span className="text-xs text-gray-400">
-                                🕒 {new Date(report.created_at || Date.now()).toLocaleDateString('tr-TR')}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {report.report_type === 'user' && report.reported_user_id && (
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    await banUser(report.reported_user_id)
-                                    await closeReport(report.id)
-                                  }}
-                                  className="px-3.5 py-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-semibold hover:bg-rose-500/30 transition cursor-pointer"
-                                >
-                                  ⛔ Kullanıcıyı Banla
+                    <div className="space-y-3">
+                      {filteredReports.map((report) => {
+                        const reportedUser = allProfiles.find((p) => p.id === report.reported_user_id)
+                        return (
+                          <div key={report.id}
+                            className="border border-rose-500/20 rounded-2xl p-5 bg-gradient-to-br from-rose-950/20 to-slate-900/60 shadow-lg">
+                            <div className="flex items-center justify-between flex-wrap gap-3">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <input type="checkbox" checked={selectedReportIds.includes(report.id)}
+                                  onChange={(e) => toggleInArray(setSelectedReportIds, report.id, e.target.checked)}
+                                  className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20 shrink-0" />
+                                <Badge variant="danger">
+                                  {report.report_type === 'place' ? '📍 Mekan' : report.report_type === 'review' ? '💬 Yorum' : '👤 Kullanıcı'}
+                                </Badge>
+                                <span className="text-xs font-mono text-gray-400 bg-white/5 px-2 py-0.5 rounded">ID: {report.id?.slice(0, 8)}</span>
+                                <span className="text-xs text-gray-400">🕒 {new Date(report.created_at || Date.now()).toLocaleDateString('tr-TR')}</span>
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {report.report_type === 'user' && report.reported_user_id && (
+                                  <button type="button"
+                                    onClick={async () => { await banUser(report.reported_user_id!); await closeReport(report.id) }}
+                                    className="px-3.5 py-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-semibold hover:bg-rose-500/30 transition cursor-pointer">
+                                    ⛔ Banla
+                                  </button>
+                                )}
+                                <button type="button" onClick={() => closeReport(report.id)}
+                                  className="px-4 py-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-semibold hover:bg-emerald-500/30 transition cursor-pointer">
+                                  📁 Kapat & Arşivle
                                 </button>
+                              </div>
+                            </div>
+                            <div className="mt-3 p-3.5 bg-white/5 rounded-xl border border-white/5">
+                              <div className="text-[11px] text-gray-400 mb-1 uppercase tracking-wide">Şikayet Nedeni</div>
+                              <p className="text-sm text-gray-200 font-medium">"{report.reason}"</p>
+                            </div>
+                            <div className="text-xs text-gray-400 mt-3 flex flex-wrap gap-4">
+                              {report.report_type === 'place' && report.place_id && (
+                                <span>Mekan ID: <strong className="text-gray-300 font-mono">{report.place_id}</strong></span>
                               )}
-                              <button
-                                type="button"
-                                onClick={() => closeReport(report.id)}
-                                className="px-4 py-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-semibold hover:bg-emerald-500/30 transition flex items-center gap-1.5 cursor-pointer"
-                              >
-                                📁 Raporu Kapat & Arşivle
-                              </button>
+                              {report.report_type === 'review' && report.review_id && (
+                                <span>Yorum ID: <strong className="text-gray-300 font-mono">{report.review_id}</strong></span>
+                              )}
+                              {report.report_type === 'user' && report.reported_user_id && (
+                                <span>Hedef: <strong className="text-amber-300">{reportedUser?.username || 'Bilinmeyen'}</strong></span>
+                              )}
                             </div>
                           </div>
-
-                          <div className="mt-3 p-3.5 bg-white/5 rounded-xl border border-white/5">
-                            <div className="text-xs text-gray-400 mb-1">Şikayet Nedeni:</div>
-                            <p className="text-sm text-gray-200 font-medium">"{report.reason}"</p>
-                          </div>
-
-                          <div className="text-xs text-gray-400 mt-3 flex flex-wrap gap-4">
-                            {report.report_type === 'place' && report.place_id && (
-                              <span>
-                                Mekan ID:{' '}
-                                <strong className="text-gray-300 font-mono">{report.place_id}</strong>
-                              </span>
-                            )}
-                            {report.report_type === 'review' && report.review_id && (
-                              <span>
-                                Yorum ID:{' '}
-                                <strong className="text-gray-300 font-mono">{report.review_id}</strong>
-                              </span>
-                            )}
-                            {report.report_type === 'user' && report.reported_user_id && (
-                              <span>
-                                Hedef Kullanıcı:{' '}
-                                <strong className="text-amber-300 font-semibold">
-                                  {reportedUser?.username || 'Bilinmeyen'}
-                                </strong>{' '}
-                                ({report.reported_user_id})
-                              </span>
-                            )}
-                            {report.user_id && (
-                              <span>
-                                Şikayet Eden ID:{' '}
-                                <span className="font-mono text-gray-400">{report.user_id}</span>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })
-                  ) : (
-                    <div className="text-center py-16">
-                      <div className="text-5xl mb-3">✅</div>
-                      <h4 className="text-lg font-bold text-gray-200">Aktif Şikayet Yok</h4>
-                      <p className="text-sm text-gray-400 mt-1">
-                        İncelenmesi gereken açık rapor bulunmuyor.
-                      </p>
+                        )
+                      })}
                     </div>
+                  ) : (
+                    <EmptyState icon="✅" title="Aktif Şikayet Yok" description="İncelenmesi gereken açık rapor bulunmuyor." />
                   )}
                 </motion.div>
               )}
 
-              {/* TAB 6: KAPATILAN RAPORLAR */}
+              {/* ── CLOSED REPORTS ── */}
               {activeTab === 'kapatilan_raporlar' && (
-                <motion.div
-                  key="kapatilan_raporlar"
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -12 }}
-                  className="space-y-5"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                        <span className="text-teal-400">📁</span> Kapatılan & Arşivlenen Raporlar
-                      </h3>
-                      <p className="text-xs text-gray-400">
-                        Daha önce incelenip çözümlenen rapor geçmişi
-                      </p>
-                    </div>
-                    <div className="w-full sm:w-72">
-                      <input
-                        type="text"
-                        value={searchClosedReports}
-                        onChange={(e) => setSearchClosedReports(e.target.value)}
-                        placeholder="Kapatılan raporlarda ara..."
-                        className="input-field"
-                      />
-                    </div>
-                  </div>
+                <motion.div key="kapatilan_raporlar" {...motionProps} className="space-y-4">
+                  <SectionHeader title="Kapatılan & Arşivlenen Raporlar" subtitle="Daha önce incelenip çözümlenen rapor geçmişi"
+                    badge={`${filteredClosedReports.length} arşiv`}
+                    action={<input type="text" value={searchClosedReports} onChange={(e) => setSearchClosedReports(e.target.value)}
+                      placeholder="Kapatılan raporlarda ara..." className="input-field w-full sm:w-72" />} />
 
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { id: 'all', label: 'Tüm Kapatılanlar' },
-                      { id: 'place', label: '📍 Mekan Raporları' },
-                      { id: 'review', label: '💬 Yorum Raporları' },
-                      { id: 'user', label: '👤 Kullanıcı Raporları' },
-                    ].map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => setClosedReportTypeFilter(f.id as any)}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
-                          closedReportTypeFilter === f.id
-                            ? 'bg-teal-500 text-white shadow-lg shadow-teal-500/25'
-                            : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white'
-                        }`}
-                      >
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
+                  <FilterPills
+                    accent="teal"
+                    value={closedReportTypeFilter}
+                    onChange={setClosedReportTypeFilter}
+                    options={[
+                      { id: 'all', label: 'Tümü' },
+                      { id: 'place', label: '📍 Mekan' },
+                      { id: 'review', label: '💬 Yorum' },
+                      { id: 'user', label: '👤 Kullanıcı' },
+                    ]}
+                  />
 
                   {filteredClosedReports.length > 0 ? (
-                    filteredClosedReports.map((report) => {
-                      const reportedUser = allProfiles.find((p) => p.id === report.reported_user_id)
-                      return (
-                        <div
-                          key={report.id}
-                          className="border border-white/10 rounded-2xl p-5 bg-white/[0.02] hover:bg-white/[0.04] transition"
-                        >
-                          <div className="flex items-center justify-between flex-wrap gap-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs px-3 py-1 rounded-full bg-teal-500/20 text-teal-300 border border-teal-500/40 font-bold">
-                                {report.report_type === 'place'
-                                  ? '📍 Mekan'
-                                  : report.report_type === 'review'
-                                  ? '💬 Yorum'
-                                  : '👤 Kullanıcı'}
-                              </span>
-                              <span className="text-xs font-mono text-gray-400 bg-white/5 px-2 py-0.5 rounded">
-                                ID: {report.id?.slice(0, 8)}
-                              </span>
-                              <span className="text-xs text-emerald-400 font-medium flex items-center gap-1">
-                                ✓ Kapatıldı
-                              </span>
-                              {report.closed_at && (
-                                <span className="text-xs text-gray-400">
-                                  • {new Date(report.closed_at).toLocaleDateString('tr-TR')}
-                                </span>
+                    <div className="space-y-3">
+                      {filteredClosedReports.map((report) => {
+                        const reportedUser = allProfiles.find((p) => p.id === report.reported_user_id)
+                        return (
+                          <div key={report.id} className="border border-white/10 rounded-2xl p-5 bg-white/[0.02] hover:bg-white/[0.04] transition">
+                            <div className="flex items-center justify-between flex-wrap gap-3">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge variant="info">
+                                  {report.report_type === 'place' ? '📍 Mekan' : report.report_type === 'review' ? '💬 Yorum' : '👤 Kullanıcı'}
+                                </Badge>
+                                <span className="text-xs font-mono text-gray-400 bg-white/5 px-2 py-0.5 rounded">ID: {report.id?.slice(0, 8)}</span>
+                                <Badge variant="success">✓ Kapatıldı</Badge>
+                                {report.closed_at && (
+                                  <span className="text-xs text-gray-400">• {new Date(report.closed_at).toLocaleDateString('tr-TR')}</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <button type="button" onClick={() => reopenReport(report.id)}
+                                  className="px-3.5 py-1.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full text-xs font-semibold hover:bg-amber-500/25 transition cursor-pointer">
+                                  🔄 Geri Aç
+                                </button>
+                                <button type="button" onClick={() => deleteReportPermanently(report.id)}
+                                  className="px-3.5 py-1.5 bg-rose-500/15 text-rose-300 border border-rose-500/30 rounded-full text-xs font-semibold hover:bg-rose-500/25 transition cursor-pointer">
+                                  🗑️ Sil
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mt-3 p-3.5 bg-black/20 rounded-xl border border-white/5">
+                              <div className="text-[11px] text-gray-400 mb-1 uppercase tracking-wide">Şikayet Nedeni</div>
+                              <p className="text-sm text-gray-300">"{report.reason}"</p>
+                            </div>
+                            <div className="text-[11px] text-gray-500 mt-3 flex flex-wrap gap-4 font-mono">
+                              {report.report_type === 'place' && report.place_id && <span>Mekan ID: {report.place_id}</span>}
+                              {report.report_type === 'review' && report.review_id && <span>Yorum ID: {report.review_id}</span>}
+                              {report.report_type === 'user' && report.reported_user_id && (
+                                <span>Kullanıcı: {reportedUser?.username || 'Bilinmeyen'} ({report.reported_user_id})</span>
                               )}
                             </div>
-
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => reopenReport(report.id)}
-                                className="px-3.5 py-1.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded-full text-xs font-semibold hover:bg-amber-500/25 transition flex items-center gap-1 cursor-pointer"
-                              >
-                                🔄 Geri Aç
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => deleteReportPermanently(report.id)}
-                                className="px-3.5 py-1.5 bg-rose-500/15 text-rose-300 border border-rose-500/30 rounded-full text-xs font-semibold hover:bg-rose-500/25 transition cursor-pointer"
-                              >
-                                🗑️ Kalıcı Sil
-                              </button>
-                            </div>
                           </div>
-
-                          <div className="mt-3 p-3.5 bg-black/20 rounded-xl border border-white/5">
-                            <div className="text-xs text-gray-400 mb-1">Şikayet Nedeni:</div>
-                            <p className="text-sm text-gray-300">"{report.reason}"</p>
-                          </div>
-
-                          <div className="text-xs text-gray-500 mt-3 flex flex-wrap gap-4 font-mono">
-                            {report.report_type === 'place' &&
-                              report.place_id &&
-                              `Mekan ID: ${report.place_id}`}
-                            {report.report_type === 'review' &&
-                              report.review_id &&
-                              `Yorum ID: ${report.review_id}`}
-                            {report.report_type === 'user' &&
-                              report.reported_user_id &&
-                              `Kullanıcı: ${reportedUser?.username || 'Bilinmeyen'} (${
-                                report.reported_user_id
-                              })`}
-                          </div>
-                        </div>
-                      )
-                    })
-                  ) : (
-                    <div className="text-center py-16">
-                      <div className="text-5xl mb-3">📁</div>
-                      <h4 className="text-lg font-bold text-gray-200">Kapatılan Rapor Yok</h4>
-                      <p className="text-sm text-gray-400 mt-1">
-                        Henüz kapatılmış veya arşivlenmiş bir şikayet bulunmuyor.
-                      </p>
+                        )
+                      })}
                     </div>
+                  ) : (
+                    <EmptyState icon="📁" title="Kapatılan Rapor Yok" description="Henüz kapatılmış veya arşivlenmiş bir şikayet bulunmuyor." />
                   )}
                 </motion.div>
               )}
+
             </AnimatePresence>
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ──────── Place Accordion (paylaşılan) ──────── */
+const motionProps = {
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -12 },
+} as const
+
+function PlaceAccordion({
+  place, expanded, onToggle, categoryName, priceLabel,
+  actions, checkbox, statusBadge,
+}: {
+  place: Place
+  expanded: boolean
+  onToggle: () => void
+  categoryName: string
+  priceLabel: string
+  actions: React.ReactNode
+  checkbox?: React.ReactNode
+  statusBadge?: React.ReactNode
+}) {
+  return (
+    <div className="border border-white/10 rounded-2xl bg-white/[0.03] overflow-hidden transition hover:border-white/20">
+      <div className="flex items-center p-4 md:p-5 hover:bg-white/5 transition text-left gap-3">
+        {checkbox}
+        <button type="button" onClick={onToggle} className="w-full flex items-center justify-between cursor-pointer gap-2">
+          <div className="space-y-1 text-left min-w-0">
+            <div className="font-bold text-lg text-white flex items-center gap-2 truncate">
+              <span>{place.status === 'pending' ? '📍' : '🏪'}</span>
+              <span className="truncate">{place.name}</span>
+            </div>
+            <div className="text-xs text-gray-400 flex flex-wrap items-center gap-2">
+              <span>🏙️ {place.district || 'Belirtilmemiş'}</span>
+              <span className="text-gray-600">•</span>
+              <span>📅 {new Date(place.created_at).toLocaleDateString('tr-TR')}</span>
+              {statusBadge && <><span className="text-gray-600">•</span>{statusBadge}</>}
+            </div>
+          </div>
+          <span className={`transform transition-transform text-gray-400 shrink-0 ${expanded ? 'rotate-180' : ''}`}>▼</span>
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden border-t border-white/10 bg-black/20"
+          >
+            <div className="p-4 md:p-5 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
+                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Kategori</div>
+                  <div className="text-sm font-semibold text-gray-200 mt-0.5">{categoryName}</div>
+                </div>
+                <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
+                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Fiyat Aralığı</div>
+                  <div className="text-sm font-semibold text-gray-200 mt-0.5">{priceLabel}</div>
+                </div>
+                <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
+                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Ekleyen User</div>
+                  <div className="text-xs font-mono text-gray-300 mt-0.5 truncate">{place.user_id || 'Anonim'}</div>
+                </div>
+              </div>
+
+              {place.description && (
+                <div className="bg-white/5 p-4 rounded-xl border border-white/5">
+                  <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Açıklama</div>
+                  <p className="text-sm text-gray-200 leading-relaxed">{place.description}</p>
+                </div>
+              )}
+              {place.address && (
+                <div className="text-sm text-gray-300">📍 <strong>Adres:</strong> {place.address}</div>
+              )}
+              <div className="flex flex-wrap gap-2 pt-2">{actions}</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
