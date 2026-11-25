@@ -31,7 +31,8 @@ interface Category { id: number; name: string }
 interface Place {
   id: string; name: string; district?: string; description?: string
   address?: string; category_id?: number; price_range?: number | null
-  user_id?: string; status?: string; created_at: string
+  user_id?: string; created_by?: string; owner_id?: string | null
+  status?: string; created_at: string
 }
 interface Profile {
   id: string; username?: string; created_at: string
@@ -49,8 +50,8 @@ interface Report {
 interface OwnershipRequest {
   id: string; status: string; message?: string; created_at: string
   place_id?: string; user_id?: string
-  places?: { id: string; name: string }[] | null
-  profiles?: { username: string }[] | null
+  place_name?: string | null
+  username?: string | null
 }
 interface Photo {
   id: string; url: string; caption?: string; created_at: string
@@ -255,7 +256,9 @@ function PlaceAccordion({
                 </div>
                 <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
                   <div className="text-[11px] text-gray-400 uppercase tracking-wide">Ekleyen User</div>
-                  <div className="text-xs font-mono text-gray-300 mt-0.5 truncate">{place.user_id || 'Anonim'}</div>
+                  <div className="text-xs font-mono text-gray-300 mt-0.5 truncate">
+                    {place.created_by || place.user_id || 'Anonim'}
+                  </div>
                 </div>
               </div>
               {place.description && (
@@ -617,18 +620,18 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
     try {
-      const [cat, allPlace, pend, totalPlace, profile, totalUser, review, totalReview, allReport, requestsRes, photosRes] =
+      const [cat, allPlace, pend, totalPlace, profile, totalUser, review, totalReview, allReport, rawRequestsRes, photosRes] =
         await Promise.all([
           supabase.from('categories').select('*'),
           supabase.from('places').select('*').order('created_at', { ascending: false }).limit(200),
           supabase.from('places').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
           supabase.from('places').select('id', { count: 'exact', head: true }),
-          supabase.from('profiles').select('id, username, created_at, total_reviews, is_admin, is_banned, ban_reason').order('created_at', { ascending: false }).limit(100),
+          supabase.from('profiles').select('*').order('created_at', { ascending: false }).limit(100),
           supabase.from('profiles').select('id', { count: 'exact', head: true }),
           supabase.from('reviews').select('id, rating, comment, created_at, user_id, place_id').order('created_at', { ascending: false }).limit(100),
           supabase.from('reviews').select('id', { count: 'exact', head: true }),
           supabase.from('reports').select('*').order('created_at', { ascending: false }).limit(200),
-          supabase.from('ownership_requests').select(`id, status, message, created_at, place_id, user_id, places ( id, name ), profiles ( username )`).order('created_at', { ascending: false }),
+          supabase.from('ownership_requests').select('id, status, message, created_at, place_id, user_id').order('created_at', { ascending: false }),
           supabase.from('photos').select(`id, url, caption, created_at, user_id, place_id, profiles ( username ), places ( name )`, { count: 'exact' }).order('created_at', { ascending: false }).limit(100),
         ])
 
@@ -638,13 +641,49 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
       const profiles = (profile.data || []) as Profile[]
       const reviews = (review.data || []) as Review[]
       const allReports = (allReport.data || []) as Report[]
+      const rawRequests = (rawRequestsRes.data || []) as Array<{
+        id: string; status: string; message?: string; created_at: string
+        place_id?: string; user_id?: string
+      }>
+
+      const placeNameById = new Map<string, string>()
+      allPlacesData.forEach((p) => placeNameById.set(p.id, p.name))
+
+      const usernameById = new Map<string, string>()
+      profiles.forEach((u) => {
+        if (u.username) usernameById.set(u.id, u.username)
+      })
+
+      const missingPlaceIds = Array.from(
+        new Set(rawRequests.map((r) => r.place_id).filter((id): id is string => Boolean(id) && !placeNameById.has(id!)))
+      )
+      if (missingPlaceIds.length > 0) {
+        const { data: extraPlaces } = await supabase.from('places').select('id, name').in('id', missingPlaceIds)
+        ;(extraPlaces || []).forEach((p: { id: string; name: string }) => placeNameById.set(p.id, p.name))
+      }
+
+      const missingUserIds = Array.from(
+        new Set(rawRequests.map((r) => r.user_id).filter((id): id is string => Boolean(id) && !usernameById.has(id!)))
+      )
+      if (missingUserIds.length > 0) {
+        const { data: extraProfiles } = await supabase.from('profiles').select('id, username').in('id', missingUserIds)
+        ;(extraProfiles || []).forEach((u: { id: string; username?: string }) => {
+          if (u.username) usernameById.set(u.id, u.username)
+        })
+      }
+
+      const enrichedRequests: OwnershipRequest[] = rawRequests.map((r) => ({
+        ...r,
+        place_name: r.place_id ? placeNameById.get(r.place_id) ?? null : null,
+        username: r.user_id ? usernameById.get(r.user_id) ?? null : null,
+      }))
 
       setCategories(cats)
       setAllPlaces(allPlacesData)
       setPendingPlaces(pending)
       setAllProfiles(profiles)
       setAllReviews(reviews)
-      setOwnershipRequests((requestsRes.data ?? []) as OwnershipRequest[])
+      setOwnershipRequests(enrichedRequests)
       setAllPhotos((photosRes.data ?? []) as Photo[])
 
       const storedClosed = loadSavedClosedReports()
@@ -720,16 +759,16 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
     }
   }, [supabase, loadSavedClosedReports])
 
-  useEffect(() => { fetchData(false) }, [fetchData])
+  useEffect(() => { void fetchData(false) }, [fetchData])
 
   /* ── Realtime ── */
   useEffect(() => {
     const channel = supabase
       .channel('admin-live-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'places' }, () => fetchData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => fetchData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => fetchData(true))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'ownership_requests' }, () => fetchData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'places' }, () => void fetchData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reviews' }, () => void fetchData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => void fetchData(true))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ownership_requests' }, () => void fetchData(true))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, (payload) => {
         const newReport = payload.new as Report
         setReports((prev) => [newReport, ...prev])
@@ -753,7 +792,7 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    return () => { void supabase.removeChannel(channel) }
   }, [supabase, fetchData, addNotification])
 
   /* ── Audit lazy load ── */
@@ -777,11 +816,10 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
 
   useEffect(() => {
     if (activeTab === 'audit_log' && !auditLoaded && hasRole(currentAdmin.role, 'admin')) {
-      fetchAuditLog()
+      void fetchAuditLog()
     }
   }, [activeTab, auditLoaded, currentAdmin.role, fetchAuditLog])
 
-  // Rol düşerse geçersiz tab'a takılıp kalma koruması
   useEffect(() => {
     const visible = TABS.filter((t) => hasRole(currentAdmin.role, TAB_MIN_ROLE[t.id]))
     if (!visible.find((t) => t.id === activeTab)) {
@@ -809,7 +847,7 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
   /* ── Place actions ── */
   const approvePlace = async (id: string) => {
     const place = pendingPlaces.find((p) => p.id === id)
-    const { error } = await supabase.from('places').update({ status: 'approved' }).eq('id', id)
+    const { error } = await supabase.from('places').update({ status: 'approved', is_verified: true }).eq('id', id)
     if (error) return addNotification('Onaylama hatası: ' + error.message, 'warning')
     setPendingPlaces((prev) => prev.filter((p) => p.id !== id))
     setAllPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, status: 'approved' } : p)))
@@ -854,9 +892,10 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
     if (!selectedPendingIds.length) return
     setBulkLoading(true)
     try {
-      const { error } = await supabase.from('places').update({ status: 'approved' }).in('id', selectedPendingIds)
+      const { error } = await supabase.from('places').update({ status: 'approved', is_verified: true }).in('id', selectedPendingIds)
       if (error) throw error
       setPendingPlaces((prev) => prev.filter((p) => !selectedPendingIds.includes(p.id)))
+      setAllPlaces((prev) => prev.map((p) => (selectedPendingIds.includes(p.id) ? { ...p, status: 'approved' } : p)))
       setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - selectedPendingIds.length) }))
       await log({
         action: 'bulk_approve_places', targetType: 'place',
@@ -883,6 +922,7 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
       const { error } = await supabase.from('places').update({ status: 'rejected' }).in('id', selectedPendingIds)
       if (error) throw error
       setPendingPlaces((prev) => prev.filter((p) => !selectedPendingIds.includes(p.id)))
+      setAllPlaces((prev) => prev.map((p) => (selectedPendingIds.includes(p.id) ? { ...p, status: 'rejected' } : p)))
       setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - selectedPendingIds.length) }))
       await log({
         action: 'bulk_reject_places', targetType: 'place',
@@ -1118,30 +1158,69 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
   /* ── Ownership ── */
   const approveOwnership = async (requestId: string) => {
     const request = ownershipRequests.find((r) => r.id === requestId)
-    if (!request?.place_id) return addNotification('Mekan ID bulunamadı!', 'warning')
-    const { error: updateError } = await supabase.from('places').update({ owner_id: request.user_id }).eq('id', request.place_id)
-    if (updateError) return addNotification('Mekan sahibi atanamadı: ' + updateError.message, 'warning')
-    const { error: reqErr } = await supabase.from('ownership_requests').update({ status: 'approved' }).eq('id', requestId)
-    if (reqErr) return addNotification('Talep onaylanamadı: ' + reqErr.message, 'warning')
-    setOwnershipRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r)))
+    if (!request?.place_id || !request?.user_id) {
+      return addNotification('Sahiplik talebinde mekan veya kullanıcı bilgisi eksik!', 'warning')
+    }
+
+    const { error: updateError } = await supabase
+      .from('places')
+      .update({ owner_id: request.user_id, is_verified: true })
+      .eq('id', request.place_id)
+
+    if (updateError) {
+      return addNotification('Mekan sahibi atanamadı: ' + updateError.message, 'warning')
+    }
+
+    const { error: reqErr } = await supabase
+      .from('ownership_requests')
+      .update({ status: 'approved' })
+      .eq('id', requestId)
+
+    if (reqErr) {
+      return addNotification('Talep onaylanamadı: ' + reqErr.message, 'warning')
+    }
+
+    setOwnershipRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r))
+    )
+    setAllPlaces((prev) =>
+      prev.map((p) => (p.id === request.place_id ? { ...p, owner_id: request.user_id } : p))
+    )
+
     await log({
-      action: 'approve_ownership', targetType: 'ownership', targetId: requestId,
-      targetName: request.places?.[0]?.name ?? null,
+      action: 'approve_ownership',
+      targetType: 'ownership',
+      targetId: requestId,
+      targetName: request.place_name ?? null,
       details: { place_id: request.place_id, user_id: request.user_id },
     })
+
     addNotification('Sahiplik talebi onaylandı ✅', 'success')
     await refresh()
   }
 
   const rejectOwnership = async (requestId: string) => {
     const request = ownershipRequests.find((r) => r.id === requestId)
-    const { error } = await supabase.from('ownership_requests').update({ status: 'rejected' }).eq('id', requestId)
-    if (error) return addNotification('Reddetme hatası: ' + error.message, 'warning')
-    setOwnershipRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r)))
+    const { error } = await supabase
+      .from('ownership_requests')
+      .update({ status: 'rejected' })
+      .eq('id', requestId)
+
+    if (error) {
+      return addNotification('Reddetme hatası: ' + error.message, 'warning')
+    }
+
+    setOwnershipRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r))
+    )
+
     await log({
-      action: 'reject_ownership', targetType: 'ownership', targetId: requestId,
-      targetName: request?.places?.[0]?.name ?? null,
+      action: 'reject_ownership',
+      targetType: 'ownership',
+      targetId: requestId,
+      targetName: request?.place_name ?? null,
     })
+
     addNotification('Sahiplik talebi reddedildi ❌', 'warning')
     await refresh()
   }
@@ -1238,11 +1317,9 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
   )
 
   const filteredOwnershipRequests = ownershipRequests.filter((req) => {
-    const placeName = req.places?.[0]?.name
-    const userName = req.profiles?.[0]?.username
     const q = searchOwnership.toLowerCase()
-    return (placeName?.toLowerCase() || '').includes(q) ||
-      (userName?.toLowerCase() || '').includes(q) ||
+    return (req.place_name?.toLowerCase() || '').includes(q) ||
+      (req.username?.toLowerCase() || '').includes(q) ||
       (req.status?.toLowerCase() || '').includes(q) ||
       (req.message?.toLowerCase() || '').includes(q)
   })
@@ -1403,7 +1480,7 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
                 className="px-4 py-2 rounded-full bg-teal-500/15 border border-teal-500/40 text-xs sm:text-sm font-semibold text-teal-300 hover:bg-teal-500/25 transition flex items-center gap-1.5 cursor-pointer">
                 📥 CSV İndir
               </button>
-              <button type="button" onClick={() => fetchData(false)}
+              <button type="button" onClick={() => void fetchData(false)}
                 className="px-4 py-2 rounded-full bg-white/10 border border-white/15 text-xs sm:text-sm font-medium text-gray-200 hover:bg-white/15 hover:border-white/25 transition flex items-center gap-2 cursor-pointer">
                 🔄 Yenile
               </button>
@@ -1732,44 +1809,40 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
 
                   {filteredOwnershipRequests.length > 0 ? (
                     <div className="space-y-3">
-                      {filteredOwnershipRequests.map((request) => {
-                        const placeName = request.places?.[0]?.name
-                        const userName = request.profiles?.[0]?.username
-                        return (
-                          <div key={request.id} className="border border-white/10 rounded-2xl p-5 bg-white/[0.03]">
-                            <div className="flex items-start justify-between flex-wrap gap-3">
-                              <div>
-                                <p className="font-bold text-lg text-white">🏢 {placeName || 'Bilinmeyen Mekan'}</p>
-                                <p className="text-xs text-gray-400 mt-1">
-                                  Başvuran: <span className="text-amber-300 font-semibold">{userName || 'Anonim'}</span>
-                                  <span className="mx-2">•</span>
-                                  {new Date(request.created_at).toLocaleDateString('tr-TR')}
-                                </p>
-                              </div>
-                              <Badge variant={request.status === 'approved' ? 'success' : request.status === 'rejected' ? 'danger' : 'warning'}>
-                                {request.status === 'pending' ? 'Bekliyor' : request.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}
-                              </Badge>
+                      {filteredOwnershipRequests.map((request) => (
+                        <div key={request.id} className="border border-white/10 rounded-2xl p-5 bg-white/[0.03]">
+                          <div className="flex items-start justify-between flex-wrap gap-3">
+                            <div>
+                              <p className="font-bold text-lg text-white">🏢 {request.place_name || 'Bilinmeyen Mekan'}</p>
+                              <p className="text-xs text-gray-400 mt-1">
+                                Başvuran: <span className="text-amber-300 font-semibold">{request.username || 'Anonim'}</span>
+                                <span className="mx-2">•</span>
+                                {new Date(request.created_at).toLocaleDateString('tr-TR')}
+                              </p>
                             </div>
-                            {request.message && (
-                              <div className="mt-3 p-3 bg-white/5 rounded-xl border border-white/5 text-sm text-gray-300 italic">
-                                💬 "{request.message}"
-                              </div>
-                            )}
-                            {request.status === 'pending' && (
-                              <div className="flex gap-2 mt-4">
-                                <button type="button" onClick={() => approveOwnership(request.id)}
-                                  className="px-5 py-2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-semibold hover:bg-emerald-500/30 transition cursor-pointer">
-                                  ✓ Onayla
-                                </button>
-                                <button type="button" onClick={() => rejectOwnership(request.id)}
-                                  className="px-5 py-2 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-semibold hover:bg-rose-500/30 transition cursor-pointer">
-                                  ✗ Reddet
-                                </button>
-                              </div>
-                            )}
+                            <Badge variant={request.status === 'approved' ? 'success' : request.status === 'rejected' ? 'danger' : 'warning'}>
+                              {request.status === 'pending' ? 'Bekliyor' : request.status === 'approved' ? 'Onaylandı' : 'Reddedildi'}
+                            </Badge>
                           </div>
-                        )
-                      })}
+                          {request.message && (
+                            <div className="mt-3 p-3 bg-white/5 rounded-xl border border-white/5 text-sm text-gray-300 italic">
+                              💬 "{request.message}"
+                            </div>
+                          )}
+                          {request.status === 'pending' && (
+                            <div className="flex gap-2 mt-4">
+                              <button type="button" onClick={() => approveOwnership(request.id)}
+                                className="px-5 py-2 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-semibold hover:bg-emerald-500/30 transition cursor-pointer">
+                                ✓ Onayla
+                              </button>
+                              <button type="button" onClick={() => rejectOwnership(request.id)}
+                                className="px-5 py-2 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-semibold hover:bg-rose-500/30 transition cursor-pointer">
+                                ✗ Reddet
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <EmptyState icon="🏢" title="Sahiplik Talebi Yok" description="İncelenecek sahiplik talebi bulunmuyor." />
@@ -1940,7 +2013,7 @@ export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin
                   <AuditLogTab
                     entries={auditLog}
                     loading={auditLoading}
-                    onRefresh={() => { setAuditLoaded(false); fetchAuditLog() }}
+                    onRefresh={() => { setAuditLoaded(false); void fetchAuditLog() }}
                   />
                 </motion.div>
               )}
