@@ -1,16 +1,28 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, Fragment } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNotificationStore } from '@/store/notifications'
 import { revalidateAppCache } from '@/app/actions/admin'
+import { useConfirm } from '@/components/admin/ConfirmDialog'
+import { RoleBadge } from '@/components/admin/RoleBadge'
+import { AuditLogTab } from '@/components/admin/AuditLogTab'
+import { logAdminAction, type AuditEntry } from '@/lib/admin/audit'
+import { hasRole, TAB_MIN_ROLE, type AdminRole } from '@/lib/admin/roles'
 
 /* ───────────────────────── Types ───────────────────────── */
 type TabId =
   | 'mekanlar' | 'tum_mekanlar' | 'medya' | 'yorumlar'
   | 'kullanicilar' | 'sahiplik' | 'raporlar' | 'kapatilan_raporlar'
+  | 'audit_log'
+
+export interface CurrentAdmin {
+  id: string
+  username: string | null
+  role: AdminRole
+}
 
 type ReportType = 'place' | 'review' | 'user'
 type ReportFilter = 'all' | ReportType
@@ -37,16 +49,15 @@ interface Report {
 interface OwnershipRequest {
   id: string; status: string; message?: string; created_at: string
   place_id?: string; user_id?: string
-  places?: { id: string; name: string } | { id: string; name: string }[] | null
-  profiles?: { username: string } | { username: string }[] | null
+  places?: { id: string; name: string }[] | null
+  profiles?: { username: string }[] | null
 }
 interface Photo {
   id: string; url: string; caption?: string; created_at: string
   user_id?: string; place_id?: string
-  profiles?: { username: string }[] | null   // ✅ sadece dizi
-  places?: { name: string }[] | null         // ✅ sadece dizi
+  profiles?: { username: string }[] | null
+  places?: { name: string }[] | null
 }
-
 interface Stats {
   totalPlaces: number; totalUsers: number; totalReviews: number
   totalActiveReports: number; totalClosedReports: number
@@ -56,18 +67,25 @@ interface Stats {
 /* ──────────────────── Constants ──────────────────── */
 const CLOSED_REPORTS_STORAGE_KEY = 'istanbul_admin_closed_reports'
 
-const TABS: { id: TabId; label: string; icon: string; color: string; statKey?: keyof Stats }[] = [
-  { id: 'mekanlar', label: 'Mekan Onayları', icon: '📍', color: 'text-amber-400', statKey: 'pendingCount' },
-  { id: 'tum_mekanlar', label: 'Tüm Mekanlar', icon: '🏪', color: 'text-indigo-400', statKey: 'totalPlaces' },
-  { id: 'medya', label: 'Medya Denetimi', icon: '📸', color: 'text-pink-400', statKey: 'totalPhotos' },
-  { id: 'yorumlar', label: 'Yorumlar', icon: '💬', color: 'text-sky-400', statKey: 'totalReviews' },
-  { id: 'kullanicilar', label: 'Kullanıcılar', icon: '👥', color: 'text-emerald-400', statKey: 'totalUsers' },
-  { id: 'sahiplik', label: 'Sahiplik Talepleri', icon: '🏢', color: 'text-purple-400' },
-  { id: 'raporlar', label: 'Aktif Raporlar', icon: '⚠️', color: 'text-rose-400', statKey: 'totalActiveReports' },
-  { id: 'kapatilan_raporlar', label: 'Kapatılanlar', icon: '📁', color: 'text-teal-400', statKey: 'totalClosedReports' },
+const TABS: { id: TabId; label: string; icon: string; color: string; group: 'content' | 'system' }[] = [
+  { id: 'mekanlar',           label: 'Mekan Onayları',  icon: '📍', color: 'text-amber-400',   group: 'content' },
+  { id: 'tum_mekanlar',       label: 'Tüm Mekanlar',    icon: '🏪', color: 'text-indigo-400',  group: 'content' },
+  { id: 'medya',              label: 'Medya Denetimi',  icon: '📸', color: 'text-pink-400',    group: 'content' },
+  { id: 'yorumlar',           label: 'Yorumlar',        icon: '💬', color: 'text-sky-400',     group: 'content' },
+  { id: 'kullanicilar',       label: 'Kullanıcılar',    icon: '👥', color: 'text-emerald-400', group: 'content' },
+  { id: 'sahiplik',           label: 'Sahiplik',        icon: '🏢', color: 'text-purple-400',  group: 'content' },
+  { id: 'raporlar',           label: 'Aktif Raporlar',  icon: '⚠️', color: 'text-rose-400',    group: 'content' },
+  { id: 'kapatilan_raporlar', label: 'Kapatılanlar',    icon: '📁', color: 'text-teal-400',    group: 'content' },
+  { id: 'audit_log',          label: 'İşlem Geçmişi',   icon: '📋', color: 'text-amber-300',   group: 'system'  },
 ]
 
-/* ──────────────────── Reusable Components ──────────────────── */
+const motionProps = {
+  initial: { opacity: 0, y: 12 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: -12 },
+} as const
+
+/* ──────────────────── Reusable UI ──────────────────── */
 
 function SectionHeader({
   title, subtitle, badge, action,
@@ -100,16 +118,12 @@ function EmptyState({ icon, title, description }: { icon: string; title: string;
   )
 }
 
-function StatCard({
-  icon, label, value, accent,
-}: { icon: string; label: string; value: number; accent: string }) {
+function StatCard({ icon, label, value, accent }: { icon: string; label: string; value: number; accent: string }) {
   return (
     <div className="glass-card rounded-2xl p-5 border border-white/10 relative overflow-hidden group hover:border-white/20 transition">
       <div className={`absolute -top-8 -right-8 w-24 h-24 rounded-full ${accent} opacity-10 blur-2xl group-hover:opacity-20 transition`} />
       <div className="flex items-start justify-between relative">
-        <div className={`w-11 h-11 rounded-xl ${accent} flex items-center justify-center text-xl`}>
-          {icon}
-        </div>
+        <div className={`w-11 h-11 rounded-xl ${accent} flex items-center justify-center text-xl`}>{icon}</div>
         <div className="text-3xl font-extrabold text-white tabular-nums">{value}</div>
       </div>
       <div className="text-[11px] font-semibold text-gray-400 mt-3 uppercase tracking-wider">{label}</div>
@@ -138,8 +152,7 @@ function BulkBar({ count, children }: { count: number; children: React.ReactNode
   if (count === 0) return null
   return (
     <motion.div
-      initial={{ opacity: 0, y: -6 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
       className="sticky top-2 z-20 p-3 rounded-2xl bg-slate-950/90 backdrop-blur-xl border border-amber-400/30 shadow-lg shadow-amber-400/5 flex flex-wrap items-center justify-between gap-3"
     >
       <div className="flex items-center gap-2 text-xs text-amber-200 font-semibold">
@@ -160,10 +173,7 @@ function FilterPills<T extends string>({
   return (
     <div className="flex flex-wrap gap-2">
       {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          onClick={() => onChange(o.id)}
+        <button key={o.id} type="button" onClick={() => onChange(o.id)}
           className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition cursor-pointer ${
             value === o.id ? activeClass : 'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 hover:text-white'
           }`}
@@ -175,11 +185,80 @@ function FilterPills<T extends string>({
   )
 }
 
-/* ──────────────────── Main Component ──────────────────── */
-export default function AdminTabs() {
+function PlaceAccordion({
+  place, expanded, onToggle, categoryName, priceLabel, actions, checkbox, statusBadge,
+}: {
+  place: Place; expanded: boolean; onToggle: () => void
+  categoryName: string; priceLabel: string
+  actions: React.ReactNode; checkbox?: React.ReactNode; statusBadge?: React.ReactNode
+}) {
+  return (
+    <div className="border border-white/10 rounded-2xl bg-white/[0.03] overflow-hidden transition hover:border-white/20">
+      <div className="flex items-center p-4 md:p-5 hover:bg-white/5 transition text-left gap-3">
+        {checkbox}
+        <button type="button" onClick={onToggle} className="w-full flex items-center justify-between cursor-pointer gap-2">
+          <div className="space-y-1 text-left min-w-0">
+            <div className="font-bold text-lg text-white flex items-center gap-2 truncate">
+              <span>{place.status === 'pending' ? '📍' : '🏪'}</span>
+              <span className="truncate">{place.name}</span>
+            </div>
+            <div className="text-xs text-gray-400 flex flex-wrap items-center gap-2">
+              <span>🏙️ {place.district || 'Belirtilmemiş'}</span>
+              <span className="text-gray-600">•</span>
+              <span>📅 {new Date(place.created_at).toLocaleDateString('tr-TR')}</span>
+              {statusBadge && <><span className="text-gray-600">•</span>{statusBadge}</>}
+            </div>
+          </div>
+          <span className={`transform transition-transform text-gray-400 shrink-0 ${expanded ? 'rotate-180' : ''}`}>▼</span>
+        </button>
+      </div>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden border-t border-white/10 bg-black/20"
+          >
+            <div className="p-4 md:p-5 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
+                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Kategori</div>
+                  <div className="text-sm font-semibold text-gray-200 mt-0.5">{categoryName}</div>
+                </div>
+                <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
+                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Fiyat Aralığı</div>
+                  <div className="text-sm font-semibold text-gray-200 mt-0.5">{priceLabel}</div>
+                </div>
+                <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
+                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Ekleyen User</div>
+                  <div className="text-xs font-mono text-gray-300 mt-0.5 truncate">{place.user_id || 'Anonim'}</div>
+                </div>
+              </div>
+              {place.description && (
+                <div className="bg-white/5 p-4 rounded-xl border border-white/5">
+                  <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Açıklama</div>
+                  <p className="text-sm text-gray-200 leading-relaxed">{place.description}</p>
+                </div>
+              )}
+              {place.address && (
+                <div className="text-sm text-gray-300">📍 <strong>Adres:</strong> {place.address}</div>
+              )}
+              <div className="flex flex-wrap gap-2 pt-2">{actions}</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+/* ──────────────────── Main ──────────────────── */
+
+export default function AdminTabs({ currentAdmin }: { currentAdmin: CurrentAdmin }) {
   const router = useRouter()
   const supabase = useMemo(() => createClient(), [])
   const { addNotification } = useNotificationStore()
+  const { confirm, prompt } = useConfirm()
 
   const [activeTab, setActiveTab] = useState<TabId>('mekanlar')
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -219,6 +298,11 @@ export default function AdminTabs() {
     totalActiveReports: 0, totalClosedReports: 0,
     totalPhotos: 0, pendingCount: 0,
   })
+
+  // Audit log state
+  const [auditLog, setAuditLog] = useState<AuditEntry[]>([])
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditLoaded, setAuditLoaded] = useState(false)
 
   /* ── Persistence ── */
   const loadSavedClosedReports = useCallback((): Report[] => {
@@ -283,7 +367,6 @@ export default function AdminTabs() {
       setReports(activeList)
       setClosedReports(closedList)
 
-      // 7-day activity chart
       const counts = [0, 0, 0, 0, 0, 0, 0]
       const now = new Date(); now.setHours(23, 59, 59, 999)
       const recentItems = [...reviews, ...profiles, ...allPlacesData, ...allReports]
@@ -346,45 +429,96 @@ export default function AdminTabs() {
     return () => { supabase.removeChannel(channel) }
   }, [supabase, fetchData, addNotification])
 
+  /* ── Audit lazy load ── */
+  const fetchAuditLog = useCallback(async () => {
+    setAuditLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('admin_actions')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200)
+      if (error) throw error
+      setAuditLog((data ?? []) as AuditEntry[])
+      setAuditLoaded(true)
+    } catch (err) {
+      addNotification('Audit log yüklenemedi: ' + (err as Error).message, 'warning')
+    } finally {
+      setAuditLoading(false)
+    }
+  }, [supabase, addNotification])
+
+  useEffect(() => {
+    if (activeTab === 'audit_log' && !auditLoaded && hasRole(currentAdmin.role, 'admin')) {
+      fetchAuditLog()
+    }
+  }, [activeTab, auditLoaded, currentAdmin.role, fetchAuditLog])
+
+  // Rol düşerse geçersiz tab'a takılıp kalma koruması
+  useEffect(() => {
+    const visible = TABS.filter((t) => hasRole(currentAdmin.role, TAB_MIN_ROLE[t.id]))
+    if (!visible.find((t) => t.id === activeTab)) {
+      setActiveTab(visible[0]?.id ?? 'mekanlar')
+    }
+  }, [currentAdmin.role, activeTab])
+
   /* ── Helpers ── */
   const refresh = async () => { await revalidateAppCache(); router.refresh() }
 
   const toggleInArray = (setter: React.Dispatch<React.SetStateAction<string[]>>, id: string, checked: boolean) => {
     setter((prev) => (checked ? [...prev, id] : prev.filter((x) => x !== id)))
   }
-
   const toggleAll = (setter: React.Dispatch<React.SetStateAction<string[]>>, ids: string[], checked: boolean) => {
     setter(checked ? ids : [])
   }
+  const log = (params: Omit<Parameters<typeof logAdminAction>[0], 'supabase' | 'adminId' | 'adminUsername'>) =>
+    logAdminAction({
+      supabase,
+      adminId: currentAdmin.id,
+      adminUsername: currentAdmin.username,
+      ...params,
+    })
 
   /* ── Place actions ── */
   const approvePlace = async (id: string) => {
+    const place = pendingPlaces.find((p) => p.id === id)
     const { error } = await supabase.from('places').update({ status: 'approved' }).eq('id', id)
     if (error) return addNotification('Onaylama hatası: ' + error.message, 'warning')
     setPendingPlaces((prev) => prev.filter((p) => p.id !== id))
     setAllPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, status: 'approved' } : p)))
     setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - 1) }))
+    await log({ action: 'approve_place', targetType: 'place', targetId: id, targetName: place?.name })
     addNotification('Mekan onaylandı ✅', 'success')
     await refresh()
   }
 
   const rejectPlace = async (id: string) => {
+    const place = pendingPlaces.find((p) => p.id === id)
     const { error } = await supabase.from('places').update({ status: 'rejected' }).eq('id', id)
     if (error) return addNotification('Reddetme hatası: ' + error.message, 'warning')
     setPendingPlaces((prev) => prev.filter((p) => p.id !== id))
     setAllPlaces((prev) => prev.map((p) => (p.id === id ? { ...p, status: 'rejected' } : p)))
     setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - 1) }))
+    await log({ action: 'reject_place', targetType: 'place', targetId: id, targetName: place?.name })
     addNotification('Mekan reddedildi ❌', 'warning')
     await refresh()
   }
 
   const deletePlace = async (id: string) => {
-    if (!window.confirm('Bu mekanı silmek istediğinize emin misiniz? (Geri alınamaz)')) return
+    const place = allPlaces.find((p) => p.id === id)
+    const ok = await confirm({
+      title: 'Mekanı kalıcı olarak sil?',
+      description: `"${place?.name ?? 'Bu mekan'}" ve tüm ilişkili veriler geri alınamaz şekilde silinecek.`,
+      confirmLabel: 'Kalıcı Sil',
+      variant: 'danger',
+    })
+    if (!ok) return
     const { error } = await supabase.from('places').delete().eq('id', id)
     if (error) return addNotification('Silme hatası: ' + error.message, 'warning')
     setAllPlaces((prev) => prev.filter((p) => p.id !== id))
     setPendingPlaces((prev) => prev.filter((p) => p.id !== id))
     setStats((prev) => ({ ...prev, totalPlaces: Math.max(0, prev.totalPlaces - 1) }))
+    await log({ action: 'delete_place', targetType: 'place', targetId: id, targetName: place?.name })
     addNotification('Mekan kalıcı olarak silindi 🗑️', 'info')
     await refresh()
   }
@@ -397,6 +531,10 @@ export default function AdminTabs() {
       if (error) throw error
       setPendingPlaces((prev) => prev.filter((p) => !selectedPendingIds.includes(p.id)))
       setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - selectedPendingIds.length) }))
+      await log({
+        action: 'bulk_approve_places', targetType: 'place',
+        details: { count: selectedPendingIds.length, ids: selectedPendingIds },
+      })
       addNotification(`${selectedPendingIds.length} mekan toplu onaylandı! ✅`, 'success')
       setSelectedPendingIds([])
       await refresh()
@@ -406,13 +544,23 @@ export default function AdminTabs() {
 
   const bulkRejectPending = async () => {
     if (!selectedPendingIds.length) return
-    if (!window.confirm(`${selectedPendingIds.length} mekanı reddetmek istediğinize emin misiniz?`)) return
+    const ok = await confirm({
+      title: `${selectedPendingIds.length} mekanı reddet?`,
+      description: 'Seçili mekanlar kullanıcıya gösterilmeyecek.',
+      confirmLabel: 'Reddet',
+      variant: 'danger',
+    })
+    if (!ok) return
     setBulkLoading(true)
     try {
       const { error } = await supabase.from('places').update({ status: 'rejected' }).in('id', selectedPendingIds)
       if (error) throw error
       setPendingPlaces((prev) => prev.filter((p) => !selectedPendingIds.includes(p.id)))
       setStats((prev) => ({ ...prev, pendingCount: Math.max(0, prev.pendingCount - selectedPendingIds.length) }))
+      await log({
+        action: 'bulk_reject_places', targetType: 'place',
+        details: { count: selectedPendingIds.length, ids: selectedPendingIds },
+      })
       addNotification(`${selectedPendingIds.length} mekan reddedildi ❌`, 'warning')
       setSelectedPendingIds([])
       await refresh()
@@ -420,25 +568,40 @@ export default function AdminTabs() {
     finally { setBulkLoading(false) }
   }
 
-  /* ── Review / Photo actions ── */
+  /* ── Reviews ── */
   const deleteReview = async (id: string) => {
+    const review = allReviews.find((r) => r.id === id)
     const { error } = await supabase.from('reviews').delete().eq('id', id)
     if (error) return addNotification('Yorum silinemedi: ' + error.message, 'warning')
     setAllReviews((prev) => prev.filter((r) => r.id !== id))
     setStats((prev) => ({ ...prev, totalReviews: Math.max(0, prev.totalReviews - 1) }))
+    await log({
+      action: 'delete_review', targetType: 'review', targetId: id,
+      targetName: review?.comment?.slice(0, 60) ?? null,
+    })
     addNotification('Yorum silindi 🗑️', 'info')
     await refresh()
   }
 
   const bulkDeleteReviews = async () => {
     if (!selectedReviewIds.length) return
-    if (!window.confirm(`${selectedReviewIds.length} yorumu kalıcı olarak silmek istediğinize emin misiniz?`)) return
+    const ok = await confirm({
+      title: `${selectedReviewIds.length} yorumu sil?`,
+      description: 'Seçili yorumlar kalıcı olarak silinecek.',
+      confirmLabel: 'Kalıcı Sil',
+      variant: 'danger',
+    })
+    if (!ok) return
     setBulkLoading(true)
     try {
       const { error } = await supabase.from('reviews').delete().in('id', selectedReviewIds)
       if (error) throw error
       setAllReviews((prev) => prev.filter((r) => !selectedReviewIds.includes(r.id)))
       setStats((prev) => ({ ...prev, totalReviews: Math.max(0, prev.totalReviews - selectedReviewIds.length) }))
+      await log({
+        action: 'bulk_delete_reviews', targetType: 'review',
+        details: { count: selectedReviewIds.length, ids: selectedReviewIds },
+      })
       addNotification(`${selectedReviewIds.length} yorum silindi 🗑️`, 'info')
       setSelectedReviewIds([])
       await refresh()
@@ -446,25 +609,47 @@ export default function AdminTabs() {
     finally { setBulkLoading(false) }
   }
 
+  /* ── Photos ── */
   const deletePhoto = async (id: string) => {
-    if (!window.confirm('Bu görseli silmek istediğinize emin misiniz?')) return
+    const photo = allPhotos.find((p) => p.id === id)
+    const ok = await confirm({
+      title: 'Bu görseli sil?',
+      description: 'Görsel kalıcı olarak silinecek.',
+      confirmLabel: 'Sil',
+      variant: 'danger',
+    })
+    if (!ok) return
     const { error } = await supabase.from('photos').delete().eq('id', id)
     if (error) return addNotification('Görsel silinemedi: ' + error.message, 'warning')
     setAllPhotos((prev) => prev.filter((p) => p.id !== id))
     setStats((prev) => ({ ...prev, totalPhotos: Math.max(0, prev.totalPhotos - 1) }))
+    await log({
+      action: 'delete_photo', targetType: 'photo', targetId: id,
+      targetName: photo?.places?.[0]?.name ?? null,
+    })
     addNotification('Görsel silindi 🗑️', 'info')
     await refresh()
   }
 
   const bulkDeletePhotos = async () => {
     if (!selectedPhotoIds.length) return
-    if (!window.confirm(`${selectedPhotoIds.length} görseli silmek istediğinize emin misiniz?`)) return
+    const ok = await confirm({
+      title: `${selectedPhotoIds.length} görseli sil?`,
+      description: 'Seçili görseller kalıcı olarak silinecek.',
+      confirmLabel: 'Kalıcı Sil',
+      variant: 'danger',
+    })
+    if (!ok) return
     setBulkLoading(true)
     try {
       const { error } = await supabase.from('photos').delete().in('id', selectedPhotoIds)
       if (error) throw error
       setAllPhotos((prev) => prev.filter((p) => !selectedPhotoIds.includes(p.id)))
       setStats((prev) => ({ ...prev, totalPhotos: Math.max(0, prev.totalPhotos - selectedPhotoIds.length) }))
+      await log({
+        action: 'bulk_delete_photos', targetType: 'photo',
+        details: { count: selectedPhotoIds.length, ids: selectedPhotoIds },
+      })
       addNotification(`${selectedPhotoIds.length} görsel silindi 🗑️`, 'info')
       setSelectedPhotoIds([])
       await refresh()
@@ -472,34 +657,41 @@ export default function AdminTabs() {
     finally { setBulkLoading(false) }
   }
 
-  /* ── Report actions ── */
-  const moveToClosed = (report: Report) => {
-    const closedItem: Report = { ...report, status: 'closed', closed_at: new Date().toISOString() }
-    const updatedActive = reports.filter((r) => r.id !== report.id)
-    const updatedClosed = [closedItem, ...closedReports.filter((r) => r.id !== report.id)]
-    setReports(updatedActive)
-    setClosedReports(updatedClosed)
-    saveClosedReports(updatedClosed)
-    return { updatedActive, updatedClosed }
-  }
-
+  /* ── Reports ── */
   const closeReport = async (reportId: string) => {
     const target = reports.find((r) => r.id === reportId)
     if (!target) return
     const { error } = await supabase.from('reports').update({ status: 'closed' }).eq('id', reportId)
     if (error) console.warn('Close report DB warning:', error.message)
-    moveToClosed(target)
+    const closedItem: Report = { ...target, status: 'closed', closed_at: new Date().toISOString() }
+    const updatedActive = reports.filter((r) => r.id !== reportId)
+    const updatedClosed = [closedItem, ...closedReports.filter((r) => r.id !== reportId)]
+    setReports(updatedActive)
+    setClosedReports(updatedClosed)
+    saveClosedReports(updatedClosed)
     setStats((prev) => ({
       ...prev,
       totalActiveReports: Math.max(0, prev.totalActiveReports - 1),
       totalClosedReports: prev.totalClosedReports + 1,
     }))
+    await log({
+      action: 'close_report', targetType: 'report', targetId: reportId,
+      targetName: target.reason?.slice(0, 60) ?? null,
+      details: { report_type: target.report_type },
+    })
     addNotification('Rapor kapatıldı ve arşive eklendi 📁', 'info')
     router.refresh()
   }
 
   const bulkCloseReports = async () => {
     if (!selectedReportIds.length) return
+    const ok = await confirm({
+      title: `${selectedReportIds.length} raporu kapat?`,
+      description: 'Seçili raporlar arşive taşınacak.',
+      confirmLabel: 'Kapat & Arşivle',
+      variant: 'default',
+    })
+    if (!ok) return
     setBulkLoading(true)
     try {
       const targets = reports.filter((r) => selectedReportIds.includes(r.id))
@@ -508,7 +700,6 @@ export default function AdminTabs() {
       }))
       const { error } = await supabase.from('reports').update({ status: 'closed' }).in('id', selectedReportIds)
       if (error) console.warn('Report bulk close DB warning:', error.message)
-
       const updatedActive = reports.filter((r) => !selectedReportIds.includes(r.id))
       const updatedClosed = [...closingReports, ...closedReports]
       setReports(updatedActive)
@@ -519,6 +710,10 @@ export default function AdminTabs() {
         totalActiveReports: Math.max(0, prev.totalActiveReports - selectedReportIds.length),
         totalClosedReports: prev.totalClosedReports + selectedReportIds.length,
       }))
+      await log({
+        action: 'bulk_close_reports', targetType: 'report',
+        details: { count: selectedReportIds.length, ids: selectedReportIds },
+      })
       addNotification(`${selectedReportIds.length} rapor toplu kapatıldı 📁`, 'info')
       setSelectedReportIds([])
       router.refresh()
@@ -542,12 +737,19 @@ export default function AdminTabs() {
       totalActiveReports: prev.totalActiveReports + 1,
       totalClosedReports: Math.max(0, prev.totalClosedReports - 1),
     }))
+    await log({ action: 'reopen_report', targetType: 'report', targetId: reportId })
     addNotification('Rapor tekrar aktif duruma getirildi 🔄', 'success')
     router.refresh()
   }
 
   const deleteReportPermanently = async (reportId: string) => {
-    if (!window.confirm('Bu raporu kalıcı olarak silmek istediğinize emin misiniz?')) return
+    const ok = await confirm({
+      title: 'Raporu kalıcı olarak sil?',
+      description: 'Bu işlem geri alınamaz.',
+      confirmLabel: 'Kalıcı Sil',
+      variant: 'danger',
+    })
+    if (!ok) return
     const { error } = await supabase.from('reports').delete().eq('id', reportId)
     if (error) console.warn('DB delete warning:', error.message)
     const updatedClosed = closedReports.filter((r) => r.id !== reportId)
@@ -560,11 +762,12 @@ export default function AdminTabs() {
       totalClosedReports: updatedClosed.length,
       totalActiveReports: updatedActive.length,
     }))
+    await log({ action: 'delete_report', targetType: 'report', targetId: reportId })
     addNotification('Rapor kalıcı olarak silindi 🗑️', 'info')
     router.refresh()
   }
 
-  const exportReportsToCSV = () => {
+  const exportReportsToCSV = async () => {
     const allReps = [...reports, ...closedReports]
     if (!allReps.length) return addNotification('Dışa aktarılacak rapor bulunamadı.', 'warning')
     const headers = ['ID', 'Tur', 'Neden', 'Durum', 'Tarih']
@@ -581,6 +784,7 @@ export default function AdminTabs() {
     a.href = url
     a.download = `istanbul_raporlar_${new Date().toISOString().slice(0, 10)}.csv`
     document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url)
+    await log({ action: 'export_csv', targetType: 'system', details: { totalReports: allReps.length } })
     addNotification('Raporlar CSV olarak indirildi 📥', 'success')
   }
 
@@ -593,46 +797,83 @@ export default function AdminTabs() {
     const { error: reqErr } = await supabase.from('ownership_requests').update({ status: 'approved' }).eq('id', requestId)
     if (reqErr) return addNotification('Talep onaylanamadı: ' + reqErr.message, 'warning')
     setOwnershipRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r)))
+    await log({
+      action: 'approve_ownership', targetType: 'ownership', targetId: requestId,
+      targetName: request.places?.[0]?.name ?? null,
+      details: { place_id: request.place_id, user_id: request.user_id },
+    })
     addNotification('Sahiplik talebi onaylandı ✅', 'success')
     await refresh()
   }
 
   const rejectOwnership = async (requestId: string) => {
+    const request = ownershipRequests.find((r) => r.id === requestId)
     const { error } = await supabase.from('ownership_requests').update({ status: 'rejected' }).eq('id', requestId)
     if (error) return addNotification('Reddetme hatası: ' + error.message, 'warning')
     setOwnershipRequests((prev) => prev.map((r) => (r.id === requestId ? { ...r, status: 'rejected' } : r)))
+    await log({
+      action: 'reject_ownership', targetType: 'ownership', targetId: requestId,
+      targetName: request?.places?.[0]?.name ?? null,
+    })
     addNotification('Sahiplik talebi reddedildi ❌', 'warning')
     await refresh()
   }
 
   /* ── Users ── */
-  const banUser = async (userId: string) => {
-    const reason = window.prompt('Engelleme sebebini yazın:')
-    if (reason === null) return
-    const trimmed = reason.trim()
-    const { error } = await supabase.from('profiles').update({ is_banned: true, ban_reason: trimmed }).eq('id', userId)
-    if (error) return addNotification('Engelleme hatası: ' + error.message, 'warning')
-    setAllProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, is_banned: true, ban_reason: trimmed } : p)))
+  const banUser = async (userId: string): Promise<boolean> => {
+    const target = allProfiles.find((p) => p.id === userId)
+    const reason = await prompt({
+      title: 'Kullanıcıyı engelle',
+      description: 'Bu kullanıcı giriş yapamayacak ve içerik üretemeyecek.',
+      inputLabel: 'Engelleme sebebi',
+      placeholder: 'örn. spam, küfür, sahte hesap...',
+      required: true,
+      confirmLabel: 'Engelle',
+      variant: 'warning',
+      multiline: true,
+      maxLength: 300,
+    })
+    if (reason === null) return false
+    const { error } = await supabase.from('profiles').update({ is_banned: true, ban_reason: reason }).eq('id', userId)
+    if (error) { addNotification('Engelleme hatası: ' + error.message, 'warning'); return false }
+    setAllProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, is_banned: true, ban_reason: reason } : p)))
+    await log({
+      action: 'ban_user', targetType: 'user', targetId: userId,
+      targetName: target?.username, details: { reason },
+    })
     addNotification('Kullanıcı engellendi ⛔', 'warning')
     router.refresh()
+    return true
   }
 
   const unbanUser = async (userId: string) => {
+    const target = allProfiles.find((p) => p.id === userId)
     const { error } = await supabase.from('profiles').update({ is_banned: false, ban_reason: null }).eq('id', userId)
     if (error) return addNotification('Engel kaldırma hatası: ' + error.message, 'warning')
     setAllProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, is_banned: false, ban_reason: null } : p)))
+    await log({ action: 'unban_user', targetType: 'user', targetId: userId, targetName: target?.username })
     addNotification('Kullanıcının engeli kaldırıldı ✅', 'success')
     router.refresh()
   }
 
   const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm('Bu kullanıcıyı veritabanından silmek istediğinize emin misiniz?')) return
+    const target = allProfiles.find((p) => p.id === userId)
+    const ok = await confirm({
+      title: 'Kullanıcıyı sil?',
+      description: `"${target?.username ?? 'Bu kullanıcı'}" profili kalıcı olarak silinecek.`,
+      confirmLabel: 'Profili Sil',
+      variant: 'danger',
+    })
+    if (!ok) return
     setDeletingUserId(userId)
     try {
       const { error } = await supabase.from('profiles').delete().eq('id', userId)
       if (error) throw error
       setAllProfiles((prev) => prev.filter((p) => p.id !== userId))
       setStats((prev) => ({ ...prev, totalUsers: Math.max(0, prev.totalUsers - 1) }))
+      await log({
+        action: 'delete_user', targetType: 'user', targetId: userId, targetName: target?.username,
+      })
       addNotification('Kullanıcı profili silindi 🗑️', 'info')
       router.refresh()
     } catch (err) { addNotification('Silme hatası: ' + (err as Error).message, 'warning') }
@@ -670,8 +911,8 @@ export default function AdminTabs() {
   )
 
   const filteredOwnershipRequests = ownershipRequests.filter((req) => {
-    const placeName = Array.isArray(req.places) ? req.places[0]?.name : req.places?.name
-    const userName = Array.isArray(req.profiles) ? req.profiles[0]?.username : req.profiles?.username
+    const placeName = req.places?.[0]?.name
+    const userName = req.profiles?.[0]?.username
     const q = searchOwnership.toLowerCase()
     return (placeName?.toLowerCase() || '').includes(q) ||
       (userName?.toLowerCase() || '').includes(q) ||
@@ -689,9 +930,12 @@ export default function AdminTabs() {
       sahiplik: ownershipRequests.filter((r) => r.status === 'pending').length,
       raporlar: reports.length,
       kapatilan_raporlar: closedReports.length,
+      audit_log: auditLog.length,
     }
     return map[id] ?? 0
   }
+
+  const visibleTabs = TABS.filter((t) => hasRole(currentAdmin.role, TAB_MIN_ROLE[t.id]))
 
   /* ── Loading ── */
   if (loading) {
@@ -741,35 +985,54 @@ export default function AdminTabs() {
           </div>
 
           <nav className="space-y-1.5 mt-3">
-            {TABS.map((tab) => {
+            {visibleTabs.map((tab, i) => {
               const isActive = activeTab === tab.id
               const count = tabCount(tab.id)
+              const prev = visibleTabs[i - 1]
+              const showDivider = tab.group === 'system' && prev?.group !== 'system'
               return (
-                <button key={tab.id} type="button"
-                  onClick={() => { setActiveTab(tab.id); setMobileOpen(false) }}
-                  className={`w-full flex items-center gap-3.5 p-3 rounded-xl text-sm font-medium transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-amber-400/15 text-amber-300 border-l-4 border-amber-400 shadow-lg shadow-amber-400/10'
-                      : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                  }`}
-                >
-                  <span className="text-xl shrink-0">{tab.icon}</span>
-                  {sidebarOpen && (
-                    <>
-                      <span className="flex-1 text-left whitespace-nowrap">{tab.label}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full bg-white/5 border border-white/10 font-bold ${tab.color}`}>
-                        {count}
-                      </span>
-                    </>
+                <Fragment key={tab.id}>
+                  {showDivider && sidebarOpen && (
+                    <div className="pt-3 pb-1">
+                      <div className="border-t border-white/10 mb-2" />
+                      <div className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold px-3">
+                        Sistem
+                      </div>
+                    </div>
                   )}
-                </button>
+                  <button type="button"
+                    onClick={() => { setActiveTab(tab.id); setMobileOpen(false) }}
+                    className={`w-full flex items-center gap-3.5 p-3 rounded-xl text-sm font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-amber-400/15 text-amber-300 border-l-4 border-amber-400 shadow-lg shadow-amber-400/10'
+                        : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
+                    }`}
+                  >
+                    <span className="text-xl shrink-0">{tab.icon}</span>
+                    {sidebarOpen && (
+                      <>
+                        <span className="flex-1 text-left whitespace-nowrap">{tab.label}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded-full bg-white/5 border border-white/10 font-bold ${tab.color}`}>
+                          {count}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </Fragment>
               )
             })}
           </nav>
         </div>
 
         {sidebarOpen && (
-          <div className="p-3 border-t border-white/10">
+          <div className="p-3 border-t border-white/10 space-y-2">
+            <div className="px-3 py-2 rounded-xl bg-white/[0.03] border border-white/5">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">Oturum</div>
+              <div className="text-xs font-semibold text-white truncate">
+                {currentAdmin.username || 'Yönetici'}
+              </div>
+              <RoleBadge role={currentAdmin.role} className="mt-1" />
+            </div>
             <button type="button" onClick={() => router.push('/')}
               className="w-full flex items-center gap-3 p-3 rounded-xl text-sm text-gray-400 hover:bg-white/5 hover:text-white transition cursor-pointer">
               <span className="text-lg">🏠</span><span>Ana Sayfaya Dön</span>
@@ -780,7 +1043,6 @@ export default function AdminTabs() {
 
       {/* Main */}
       <div className={`transition-all duration-300 ${sidebarOpen ? 'lg:ml-[270px]' : 'lg:ml-[88px]'}`}>
-        {/* Mobile header */}
         <div className="lg:hidden p-4 flex items-center justify-between border-b border-white/10 bg-slate-950/80 backdrop-blur-md sticky top-0 z-30">
           <button type="button" onClick={() => setMobileOpen(true)}
             className="px-3 py-1.5 rounded-xl bg-white/10 text-gray-200 font-medium text-sm flex items-center gap-2 cursor-pointer">
@@ -806,6 +1068,17 @@ export default function AdminTabs() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-3 pr-3 md:pr-4 md:border-r md:border-white/10">
+                <div className="w-10 h-10 rounded-xl bg-amber-400/15 border border-amber-400/30 text-amber-300 flex items-center justify-center font-bold text-sm">
+                  {(currentAdmin.username?.[0] || 'A').toUpperCase()}
+                </div>
+                <div className="hidden sm:block">
+                  <div className="text-sm font-bold text-white leading-tight">
+                    {currentAdmin.username || 'Yönetici'}
+                  </div>
+                  <RoleBadge role={currentAdmin.role} className="mt-0.5" />
+                </div>
+              </div>
               <button type="button" onClick={exportReportsToCSV}
                 className="px-4 py-2 rounded-full bg-teal-500/15 border border-teal-500/40 text-xs sm:text-sm font-semibold text-teal-300 hover:bg-teal-500/25 transition flex items-center gap-1.5 cursor-pointer">
                 📥 CSV İndir
@@ -897,9 +1170,9 @@ export default function AdminTabs() {
             </div>
           </div>
 
-          {/* Quick tabs */}
+          {/* Quick tabs (audit_log hariç) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-            {TABS.map((tab) => (
+            {visibleTabs.filter((t) => t.id !== 'audit_log').map((tab) => (
               <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}
                 className={`p-2.5 rounded-xl text-[11px] font-semibold transition border cursor-pointer truncate ${
                   activeTab === tab.id
@@ -920,15 +1193,9 @@ export default function AdminTabs() {
               {/* ── PENDING PLACES ── */}
               {activeTab === 'mekanlar' && (
                 <motion.div key="mekanlar" {...motionProps} className="space-y-4">
-                  <SectionHeader
-                    title="Bekleyen Mekan Onayları"
-                    subtitle="Kullanıcıların eklediği ve inceleme bekleyen mekanlar"
-                    badge={`${filteredPendingPlaces.length} adet`}
-                    action={
-                      <input type="text" value={searchPlaces} onChange={(e) => setSearchPlaces(e.target.value)}
-                        placeholder="Mekan adı veya ilçe ara..." className="input-field w-full sm:w-72" />
-                    }
-                  />
+                  <SectionHeader title="Bekleyen Mekan Onayları" subtitle="Kullanıcıların eklediği ve inceleme bekleyen mekanlar" badge={`${filteredPendingPlaces.length} adet`}
+                    action={<input type="text" value={searchPlaces} onChange={(e) => setSearchPlaces(e.target.value)}
+                      placeholder="Mekan adı veya ilçe ara..." className="input-field w-full sm:w-72" />} />
 
                   {filteredPendingPlaces.length > 0 && (
                     <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-between gap-3">
@@ -941,7 +1208,6 @@ export default function AdminTabs() {
                       </label>
                     </div>
                   )}
-
                   <AnimatePresence>
                     {selectedPendingIds.length > 0 && (
                       <BulkBar count={selectedPendingIds.length}>
@@ -960,18 +1226,16 @@ export default function AdminTabs() {
                   {filteredPendingPlaces.length > 0 ? (
                     <div className="space-y-3">
                       {filteredPendingPlaces.map((place) => (
-                        <PlaceAccordion
-                          key={place.id}
-                          place={place}
+                        <PlaceAccordion key={place.id} place={place}
                           expanded={expandedPlaceId === place.id}
                           onToggle={() => setExpandedPlaceId(expandedPlaceId === place.id ? null : place.id)}
+                          categoryName={getCategoryName(place.category_id)}
+                          priceLabel={formatPrice(place.price_range)}
                           checkbox={
                             <input type="checkbox" checked={selectedPendingIds.includes(place.id)}
                               onChange={(e) => toggleInArray(setSelectedPendingIds, place.id, e.target.checked)}
                               className="rounded text-amber-400 focus:ring-amber-400 w-4 h-4 bg-slate-900 border-white/20 shrink-0" />
                           }
-                          categoryName={getCategoryName(place.category_id)}
-                          priceLabel={formatPrice(place.price_range)}
                           actions={
                             <>
                               <button type="button" onClick={() => approvePlace(place.id)}
@@ -1053,8 +1317,12 @@ export default function AdminTabs() {
                             🗑️
                           </button>
                           <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
-                            <div className="text-xs font-semibold text-white truncate">{photo.places?.[0]?.name || 'Bilinmeyen Mekan'}</div>
-                            <div className="text-[10px] text-gray-300 truncate">👤 @{photo.profiles?.[0]?.username || 'Anonim'}</div>
+                            <div className="text-xs font-semibold text-white truncate">
+                              {photo.places?.[0]?.name || 'Bilinmeyen Mekan'}
+                            </div>
+                            <div className="text-[10px] text-gray-300 truncate">
+                              👤 @{photo.profiles?.[0]?.username || 'Anonim'}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1200,8 +1468,8 @@ export default function AdminTabs() {
                   {filteredOwnershipRequests.length > 0 ? (
                     <div className="space-y-3">
                       {filteredOwnershipRequests.map((request) => {
-                        const placeName = Array.isArray(request.places) ? request.places[0]?.name : request.places?.name
-                        const userName = Array.isArray(request.profiles) ? request.profiles[0]?.username : request.profiles?.username
+                        const placeName = request.places?.[0]?.name
+                        const userName = request.profiles?.[0]?.username
                         return (
                           <div key={request.id} className="border border-white/10 rounded-2xl p-5 bg-white/[0.03]">
                             <div className="flex items-start justify-between flex-wrap gap-3">
@@ -1247,22 +1515,17 @@ export default function AdminTabs() {
               {/* ── ACTIVE REPORTS ── */}
               {activeTab === 'raporlar' && (
                 <motion.div key="raporlar" {...motionProps} className="space-y-4">
-                  <SectionHeader title="Aktif Şikayet Raporları" subtitle="İnceleme ve müdahale bekleyen açık şikayetler"
-                    badge={`${filteredReports.length} aktif`}
+                  <SectionHeader title="Aktif Şikayet Raporları" subtitle="İnceleme ve müdahale bekleyen açık şikayetler" badge={`${filteredReports.length} aktif`}
                     action={<input type="text" value={searchReports} onChange={(e) => setSearchReports(e.target.value)}
                       placeholder="Rapor ID, sebep veya tip ara..." className="input-field w-full sm:w-72" />} />
 
-                  <FilterPills
-                    accent="rose"
-                    value={reportTypeFilter}
-                    onChange={setReportTypeFilter}
+                  <FilterPills accent="rose" value={reportTypeFilter} onChange={setReportTypeFilter}
                     options={[
                       { id: 'all', label: 'Tümü' },
                       { id: 'place', label: '📍 Mekan' },
                       { id: 'review', label: '💬 Yorum' },
                       { id: 'user', label: '👤 Kullanıcı' },
-                    ]}
-                  />
+                    ]} />
 
                   {filteredReports.length > 0 && (
                     <div className="p-3 rounded-2xl bg-white/[0.04] border border-white/10 flex items-center justify-between gap-3">
@@ -1303,9 +1566,12 @@ export default function AdminTabs() {
                               <div className="flex items-center gap-2 flex-wrap">
                                 {report.report_type === 'user' && report.reported_user_id && (
                                   <button type="button"
-                                    onClick={async () => { await banUser(report.reported_user_id!); await closeReport(report.id) }}
+                                    onClick={async () => {
+                                      const banned = await banUser(report.reported_user_id!)
+                                      if (banned) await closeReport(report.id)
+                                    }}
                                     className="px-3.5 py-1.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-xs font-semibold hover:bg-rose-500/30 transition cursor-pointer">
-                                    ⛔ Banla
+                                    ⛔ Banla & Kapat
                                   </button>
                                 )}
                                 <button type="button" onClick={() => closeReport(report.id)}
@@ -1342,22 +1608,17 @@ export default function AdminTabs() {
               {/* ── CLOSED REPORTS ── */}
               {activeTab === 'kapatilan_raporlar' && (
                 <motion.div key="kapatilan_raporlar" {...motionProps} className="space-y-4">
-                  <SectionHeader title="Kapatılan & Arşivlenen Raporlar" subtitle="Daha önce incelenip çözümlenen rapor geçmişi"
-                    badge={`${filteredClosedReports.length} arşiv`}
+                  <SectionHeader title="Kapatılan & Arşivlenen Raporlar" subtitle="Daha önce incelenip çözümlenen rapor geçmişi" badge={`${filteredClosedReports.length} arşiv`}
                     action={<input type="text" value={searchClosedReports} onChange={(e) => setSearchClosedReports(e.target.value)}
                       placeholder="Kapatılan raporlarda ara..." className="input-field w-full sm:w-72" />} />
 
-                  <FilterPills
-                    accent="teal"
-                    value={closedReportTypeFilter}
-                    onChange={setClosedReportTypeFilter}
+                  <FilterPills accent="teal" value={closedReportTypeFilter} onChange={setClosedReportTypeFilter}
                     options={[
                       { id: 'all', label: 'Tümü' },
                       { id: 'place', label: '📍 Mekan' },
                       { id: 'review', label: '💬 Yorum' },
                       { id: 'user', label: '👤 Kullanıcı' },
-                    ]}
-                  />
+                    ]} />
 
                   {filteredClosedReports.length > 0 ? (
                     <div className="space-y-3">
@@ -1408,92 +1669,21 @@ export default function AdminTabs() {
                 </motion.div>
               )}
 
+              {/* ── AUDIT LOG ── */}
+              {activeTab === 'audit_log' && (
+                <motion.div key="audit_log" {...motionProps}>
+                  <AuditLogTab
+                    entries={auditLog}
+                    loading={auditLoading}
+                    onRefresh={() => { setAuditLoaded(false); fetchAuditLog() }}
+                  />
+                </motion.div>
+              )}
+
             </AnimatePresence>
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-/* ──────── Place Accordion (paylaşılan) ──────── */
-const motionProps = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -12 },
-} as const
-
-function PlaceAccordion({
-  place, expanded, onToggle, categoryName, priceLabel,
-  actions, checkbox, statusBadge,
-}: {
-  place: Place
-  expanded: boolean
-  onToggle: () => void
-  categoryName: string
-  priceLabel: string
-  actions: React.ReactNode
-  checkbox?: React.ReactNode
-  statusBadge?: React.ReactNode
-}) {
-  return (
-    <div className="border border-white/10 rounded-2xl bg-white/[0.03] overflow-hidden transition hover:border-white/20">
-      <div className="flex items-center p-4 md:p-5 hover:bg-white/5 transition text-left gap-3">
-        {checkbox}
-        <button type="button" onClick={onToggle} className="w-full flex items-center justify-between cursor-pointer gap-2">
-          <div className="space-y-1 text-left min-w-0">
-            <div className="font-bold text-lg text-white flex items-center gap-2 truncate">
-              <span>{place.status === 'pending' ? '📍' : '🏪'}</span>
-              <span className="truncate">{place.name}</span>
-            </div>
-            <div className="text-xs text-gray-400 flex flex-wrap items-center gap-2">
-              <span>🏙️ {place.district || 'Belirtilmemiş'}</span>
-              <span className="text-gray-600">•</span>
-              <span>📅 {new Date(place.created_at).toLocaleDateString('tr-TR')}</span>
-              {statusBadge && <><span className="text-gray-600">•</span>{statusBadge}</>}
-            </div>
-          </div>
-          <span className={`transform transition-transform text-gray-400 shrink-0 ${expanded ? 'rotate-180' : ''}`}>▼</span>
-        </button>
-      </div>
-
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden border-t border-white/10 bg-black/20"
-          >
-            <div className="p-4 md:p-5 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
-                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Kategori</div>
-                  <div className="text-sm font-semibold text-gray-200 mt-0.5">{categoryName}</div>
-                </div>
-                <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
-                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Fiyat Aralığı</div>
-                  <div className="text-sm font-semibold text-gray-200 mt-0.5">{priceLabel}</div>
-                </div>
-                <div className="bg-white/5 p-3.5 rounded-xl border border-white/5">
-                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Ekleyen User</div>
-                  <div className="text-xs font-mono text-gray-300 mt-0.5 truncate">{place.user_id || 'Anonim'}</div>
-                </div>
-              </div>
-
-              {place.description && (
-                <div className="bg-white/5 p-4 rounded-xl border border-white/5">
-                  <div className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">Açıklama</div>
-                  <p className="text-sm text-gray-200 leading-relaxed">{place.description}</p>
-                </div>
-              )}
-              {place.address && (
-                <div className="text-sm text-gray-300">📍 <strong>Adres:</strong> {place.address}</div>
-              )}
-              <div className="flex flex-wrap gap-2 pt-2">{actions}</div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   )
 }
