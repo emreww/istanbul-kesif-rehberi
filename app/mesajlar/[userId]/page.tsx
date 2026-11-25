@@ -18,6 +18,7 @@ export default function SohbetPage() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [loadingPage, setLoadingPage] = useState(true)
   const [isTyping, setIsTyping] = useState(false)
+  const [canMessage, setCanMessage] = useState(false)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const supabase = useMemo(() => createClient(), [])
@@ -25,15 +26,15 @@ export default function SohbetPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const channelRef = useRef<any>(null)
 
-  // Ortak kanal adı
   const getChannelName = (userIdA: string, userIdB: string) => {
     const sorted = [userIdA, userIdB].sort()
     return `chat-${sorted[0]}-${sorted[1]}`
   }
 
-  // Kullanıcı ve alıcı bilgilerini yükle
+  // Kullanıcı, alıcı ve takip durumunu yükle
   useEffect(() => {
     const init = async () => {
+      setLoadingPage(true)
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         router.push('/giris')
@@ -41,13 +42,32 @@ export default function SohbetPage() {
       }
       setCurrentUser(user)
 
-      const { data: receiverData } = await supabase
-        .from('profiles')
-        .select('id, username, avatar_url')
-        .eq('id', receiverId)
-        .single()
+      const [{ data: receiverData }, { data: followsData }] = await Promise.all([
+        supabase
+          .from('profiles')
+          .select('id, username, avatar_url')
+          .eq('id', receiverId)
+          .single(),
+        supabase
+          .from('user_follows')
+          .select('follower_id, following_id')
+          .or(
+            `and(follower_id.eq.${user.id},following_id.eq.${receiverId}),and(follower_id.eq.${receiverId},following_id.eq.${user.id})`
+          ),
+      ])
 
       setReceiver(receiverData)
+
+      const iFollowReceiver = !!followsData?.some(
+        (f) => f.follower_id === user.id && f.following_id === receiverId
+      )
+      const receiverFollowsMe = !!followsData?.some(
+        (f) => f.follower_id === receiverId && f.following_id === user.id
+      )
+
+      // Karşılıklı takip gerekiyorsa: iFollowReceiver && receiverFollowsMe
+      // Sadece sizin takip etmeniz yeterliyse: iFollowReceiver
+      setCanMessage(iFollowReceiver && receiverFollowsMe)
       setLoadingPage(false)
     }
     init()
@@ -57,7 +77,6 @@ export default function SohbetPage() {
   useEffect(() => {
     if (!currentUser || !receiverId) return
 
-    // Önce kanalı oluştur ve referansa ata
     const channelName = getChannelName(currentUser.id, receiverId)
     const channel = supabase
       .channel(channelName)
@@ -72,7 +91,6 @@ export default function SohbetPage() {
           ) {
             setMessages((prev) => [...prev, msg])
             if (msg.receiver_id === currentUser.id) {
-              // Gelen mesajı okundu işaretle ve broadcast gönder
               supabase.from('messages').update({ is_read: true }).eq('id', msg.id)
               channel.send({
                 type: 'broadcast',
@@ -94,6 +112,7 @@ export default function SohbetPage() {
         }
       )
       .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (!canMessage) return
         if (payload.userId === receiverId) {
           setIsTyping(true)
           if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
@@ -101,7 +120,6 @@ export default function SohbetPage() {
         }
       })
       .on('broadcast', { event: 'read_receipt' }, ({ payload }) => {
-        // Karşı taraf mesajları okuduğunda kendi mesajlarımızı okundu yap
         if (payload.readerId === receiverId) {
           setMessages((prev) =>
             prev.map((m) =>
@@ -116,7 +134,6 @@ export default function SohbetPage() {
 
     channelRef.current = channel
 
-    // Kanal hazır olduktan sonra mesajları yükle (okundu işaretlemesi için)
     const fetchMessages = async () => {
       const { data } = await supabase
         .from('messages')
@@ -126,7 +143,6 @@ export default function SohbetPage() {
 
       setMessages(data ?? [])
 
-      // Alınan mesajları okundu işaretle
       const { data: updatedMessages } = await supabase
         .from('messages')
         .update({ is_read: true })
@@ -136,7 +152,6 @@ export default function SohbetPage() {
         .select('id')
 
       if (updatedMessages && updatedMessages.length > 0) {
-        // Okundu broadcast'i gönder
         channel.send({
           type: 'broadcast',
           event: 'read_receipt',
@@ -151,16 +166,14 @@ export default function SohbetPage() {
       supabase.removeChannel(channel)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
     }
-  }, [supabase, currentUser, receiverId])
+  }, [supabase, currentUser, receiverId, canMessage])
 
-  // Mesaj listesi değişince en alta kaydır
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isTyping])
 
-  // Yazıyor broadcast'i gönder
   const handleTyping = () => {
-    if (!channelRef.current || !currentUser) return
+    if (!channelRef.current || !currentUser || !canMessage) return
 
     channelRef.current.send({
       type: 'broadcast',
@@ -172,6 +185,11 @@ export default function SohbetPage() {
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!newMessage.trim() || !currentUser || sending) return
+
+    if (!canMessage) {
+      addNotification('Mesaj gönderebilmek için birbirinizi takip etmeniz gerekiyor.', 'warning')
+      return
+    }
 
     setSending(true)
     const { error } = await supabase.from('messages').insert({
@@ -224,7 +242,7 @@ export default function SohbetPage() {
             <h1 className="text-xl font-bold text-gray-100">
               {receiver?.username || 'Sohbet'}
             </h1>
-            {isTyping && (
+            {isTyping && canMessage && (
               <div className="flex items-center gap-2 mt-0.5">
                 <div className="flex gap-1">
                   <span className="typing-dot" />
@@ -275,7 +293,7 @@ export default function SohbetPage() {
               )
             })}
           </AnimatePresence>
-          {isTyping && (
+          {isTyping && canMessage && (
             <div className="flex justify-start">
               <div className="bg-gray-800 text-gray-200 px-4 py-2 rounded-2xl rounded-bl-md flex items-center gap-1">
                 <span className="typing-dot" />
@@ -287,22 +305,30 @@ export default function SohbetPage() {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Takip edilmiyorsa bilgilendirme */}
+        {!canMessage && (
+          <div className="mb-2 px-4 py-2.5 rounded-2xl bg-amber-500/10 border border-amber-400/30 text-xs text-amber-200 text-center">
+            Mesajlaşabilmek için bu kullanıcı ile karşılıklı takipleşmeniz gerekiyor.
+          </div>
+        )}
+
         {/* Yazma alanı */}
         <form onSubmit={handleSend} className="py-2 border-t border-white/10 flex items-center gap-2">
           <input
             type="text"
             value={newMessage}
+            disabled={!canMessage || sending}
             onChange={(e) => {
               setNewMessage(e.target.value)
               handleTyping()
             }}
-            placeholder="Mesaj yaz..."
-            className="input-field rounded-full px-4 py-2"
+            placeholder={canMessage ? 'Mesaj yaz...' : 'Takipleşme gerekli...'}
+            className="input-field rounded-full px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <button
             type="submit"
-            disabled={sending || !newMessage.trim()}
-            className="p-2 rounded-full bg-primary-500 text-white hover:bg-primary-600 transition disabled:opacity-50"
+            disabled={!canMessage || sending || !newMessage.trim()}
+            className="p-2 rounded-full bg-primary-500 text-white hover:bg-primary-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
